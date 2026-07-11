@@ -23,7 +23,7 @@ Un rollback n'efface donc jamais l'historique : il **ajoute** une version. La ch
 L'historique d'un tunnel est disponible via l'API :
 
 ```bash
-curl -s http://localhost:7926/api/v1/tunnels/<ID>/versions \
+curl -sk https://localhost:7926/api/v1/tunnels/<ID>/versions \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
@@ -36,7 +36,7 @@ Chaque entrée porte son numéro (`n`), son message (`création`, `mise à jour`
 ## Revenir à une version antérieure
 
 ```bash
-curl -s -X POST http://localhost:7926/api/v1/tunnels/<ID>/rollback \
+curl -sk -X POST https://localhost:7926/api/v1/tunnels/<ID>/rollback \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"version": 1}'

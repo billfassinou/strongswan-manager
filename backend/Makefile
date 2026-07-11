@@ -45,7 +45,7 @@ run: ## Démarre postgres + backend (adaptateur VICI mock)
 
 lab-up: ## Démarre le lab complet avec 2 passerelles strongSwan (VICI réel)
 	VICI_ENDPOINTS="gw-a=unix:/gw/a/charon.vici,gw-b=unix:/gw/b/charon.vici" \
-	CRL_URL="http://backend:7926/crl.der" CRL_VALIDITY="30s" \
+	CRL_URL="http://backend:7927/crl.der" CRL_VALIDITY="30s" \
 		docker compose --profile lab up --build -d
 
 lab-down: ## Arrête et nettoie le lab

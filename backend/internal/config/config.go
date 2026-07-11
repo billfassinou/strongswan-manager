@@ -16,7 +16,7 @@ import (
 
 // Config regroupe tous les paramètres d'exécution du serveur.
 type Config struct {
-	HTTPAddr    string        // adresse d'écoute HTTP (ex. ":7926")
+	HTTPAddr    string        // adresse d'écoute principale, TLS si TLSEnabled (ex. ":7926")
 	DatabaseURL string        // DSN PostgreSQL
 	JWTSecret   string        // secret de signature des JWT
 	JWTTTL      time.Duration // durée de vie des jetons
@@ -27,6 +27,17 @@ type Config struct {
 	CORSOrigins   []string    // origines autorisées pour le front
 	CRLURL        string        // URL publique du CRL Distribution Point (dans les certificats)
 	CRLValidity   time.Duration // fenêtre nextUpdate des CRL
+
+	// TLS. L'écouteur principal sert en HTTPS par défaut ; l'écouteur clair
+	// (RedirectAddr) sert le CDP /crl.der et redirige le reste vers HTTPS.
+	TLSEnabled   bool     // false derrière un reverse proxy qui termine déjà le TLS
+	RedirectAddr string   // écouteur en clair : /crl.der + redirection 308 (ex. ":7927")
+	TLSCert      string   // chemin d'un certificat PEM fourni (prioritaire sur l'auto-génération)
+	TLSKey       string   // chemin de la clé privée PEM correspondante
+	TLSSans      []string // SAN du certificat auto-généré (défaut: localhost/127.0.0.1/::1/hostname)
+	ACMEDomain   string   // si défini: Let's Encrypt. Exige un domaine public joignable en HTTP-01.
+	ACMEEmail    string   // contact ACME (avis d'expiration)
+	ACMECache    string   // répertoire de cache des certificats ACME
 }
 
 // Load lit la configuration depuis les variables d'environnement, avec des
@@ -44,7 +55,25 @@ func Load() Config {
 		CORSOrigins:       envList("CORS_ORIGINS", []string{"*"}),
 		CRLURL:            env("CRL_URL", ""),
 		CRLValidity:       envDuration("CRL_VALIDITY", 24*time.Hour),
+
+		TLSEnabled:   envBool("TLS_ENABLED", true),
+		RedirectAddr: env("HTTP_REDIRECT_ADDR", ":7927"),
+		TLSCert:      env("TLS_CERT", ""),
+		TLSKey:       env("TLS_KEY", ""),
+		TLSSans:      envList("TLS_SANS", nil),
+		ACMEDomain:   env("ACME_DOMAIN", ""),
+		ACMEEmail:    env("ACME_EMAIL", ""),
+		ACMECache:    env("ACME_CACHE", "./acme"),
 	}
+}
+
+func envBool(key string, def bool) bool {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return def
 }
 
 func env(key, def string) string {

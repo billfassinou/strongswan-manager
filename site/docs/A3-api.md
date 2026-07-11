@@ -11,7 +11,7 @@ Tout ce que fait l'interface est disponible par l'API. C'est la voie pour **auto
 ## S'authentifier
 
 ```bash
-TOKEN=$(curl -s http://localhost:7926/api/v1/auth/login \
+TOKEN=$(curl -sk https://localhost:7926/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"identity":"admin","password":"admin1234"}' | jq -r .token)
 ```
@@ -19,7 +19,7 @@ TOKEN=$(curl -s http://localhost:7926/api/v1/auth/login \
 Puis, sur chaque appel :
 
 ```bash
-curl -s http://localhost:7926/api/v1/me -H "Authorization: Bearer $TOKEN"
+curl -sk https://localhost:7926/api/v1/me -H "Authorization: Bearer $TOKEN"
 ```
 
 Le jeton expire au bout de `JWT_TTL` (1 h par défaut).
@@ -95,7 +95,7 @@ Voir [Rôles & permissions](A1-roles-et-permissions.md).
 ## Créer un tunnel
 
 ```bash
-curl -s http://localhost:7926/api/v1/tunnels \
+curl -sk https://localhost:7926/api/v1/tunnels \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -159,17 +159,17 @@ Un seul schéma pour tous :
 
 ```bash
 # créer un pool
-curl -s http://localhost:7926/api/v1/config/pool \
+curl -sk https://localhost:7926/api/v1/config/pool \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"pool-rw","data":{"range":"10.9.0.0/24","source":"Interne","dns":"10.1.0.53"}}'
 
 # lister
-curl -s http://localhost:7926/api/v1/config/pool -H "Authorization: Bearer $TOKEN"
+curl -sk https://localhost:7926/api/v1/config/pool -H "Authorization: Bearer $TOKEN"
 
 # modifier / supprimer
-curl -s -X PUT    http://localhost:7926/api/v1/config/pool/<ID> -H "Authorization: Bearer $TOKEN" \
+curl -sk -X PUT    https://localhost:7926/api/v1/config/pool/<ID> -H "Authorization: Bearer $TOKEN" \
      -H 'Content-Type: application/json' -d '{"name":"pool-rw","data":{"range":"10.9.0.0/22"}}'
-curl -s -X DELETE http://localhost:7926/api/v1/config/pool/<ID> -H "Authorization: Bearer $TOKEN"
+curl -sk -X DELETE https://localhost:7926/api/v1/config/pool/<ID> -H "Authorization: Bearer $TOKEN"
 ```
 
 Le champ `data` est libre (JSON) : chaque module y met ses propres champs.
@@ -195,17 +195,17 @@ Chaque changement d'état émet un message :
 ## Exemple complet : un tunnel de bout en bout
 
 ```bash
-B=http://localhost:7926
-TOKEN=$(curl -s $B/api/v1/auth/login -H 'Content-Type: application/json' \
+B=https://localhost:7926
+TOKEN=$(curl -sk $B/api/v1/auth/login -H 'Content-Type: application/json' \
   -d '{"identity":"admin","password":"admin1234"}' | jq -r .token)
-GW=$(curl -s $B/api/v1/gateways -H "Authorization: Bearer $TOKEN" | jq -r '.items[0].id')
+GW=$(curl -sk $B/api/v1/gateways -H "Authorization: Bearer $TOKEN" | jq -r '.items[0].id')
 
 # secret
-curl -s $B/api/v1/secrets -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+curl -sk $B/api/v1/secrets -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"psk-demo","type":"psk","value":"clef-partagee"}' >/dev/null
 
 # tunnel
-TID=$(curl -s $B/api/v1/tunnels -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
+TID=$(curl -sk $B/api/v1/tunnels -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
   "name":"demo","gateway_id":"'"$GW"'","type":"site-to-site","ike_version":2,
   "local":{"addr":"203.0.113.10","subnets":["10.1.0.0/16"]},
   "remote":{"addr":"198.51.100.20","subnets":["10.2.0.0/16"]},
@@ -213,7 +213,7 @@ TID=$(curl -s $B/api/v1/tunnels -H "Authorization: Bearer $TOKEN" -H 'Content-Ty
   "proposals":{"ike":["aes256-sha256-modp2048"],"esp":["aes256gcm16"]},"pfs":true}' | jq -r .id)
 
 # monter, puis lire l'état
-curl -s -X POST $B/api/v1/tunnels/$TID/initiate -H "Authorization: Bearer $TOKEN"
+curl -sk -X POST $B/api/v1/tunnels/$TID/initiate -H "Authorization: Bearer $TOKEN"
 sleep 4
-curl -s $B/api/v1/tunnels/$TID -H "Authorization: Bearer $TOKEN" | jq '{name, status, security_score}'
+curl -sk $B/api/v1/tunnels/$TID -H "Authorization: Bearer $TOKEN" | jq '{name, status, security_score}'
 ```

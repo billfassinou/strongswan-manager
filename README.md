@@ -25,7 +25,8 @@ fichier de configuration.
 git clone https://github.com/billfassinou/strongswan-manager.git
 cd strongswan-manager/backend
 make run
-# → http://localhost:7926   —   connexion : admin / admin1234
+# → https://localhost:7926   —   connexion : admin / admin1234
+#   (certificat auto-signé : le navigateur avertit au 1er accès — c'est normal)
 ```
 
 Docker suffit : la base, les migrations, la PKI et les comptes de démonstration sont créés au
@@ -133,7 +134,8 @@ configuration files.
 ```bash
 git clone https://github.com/billfassinou/strongswan-manager.git
 cd strongswan-manager/backend && make run
-# → http://localhost:7926   —   sign in: admin / admin1234
+# → https://localhost:7926   —   sign in: admin / admin1234
+#   (self-signed certificate: the browser warns on first access — this is expected)
 ```
 
 Prebuilt standalone binaries (API + web UI in one file) are attached to every

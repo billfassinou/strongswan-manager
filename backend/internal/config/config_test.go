@@ -31,6 +31,44 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+// Le HTTPS doit être actif SANS configuration : c'est tout l'intérêt du défaut.
+func TestLoadDefaults_TLS(t *testing.T) {
+	for _, k := range []string{"TLS_ENABLED", "HTTP_REDIRECT_ADDR", "TLS_CERT", "TLS_KEY", "TLS_SANS", "ACME_DOMAIN"} {
+		t.Setenv(k, "")
+	}
+	c := Load()
+	if !c.TLSEnabled {
+		t.Fatal("TLSEnabled doit valoir true par défaut — l'application démarre en HTTPS sans configuration")
+	}
+	if c.RedirectAddr != ":7927" {
+		t.Fatalf("RedirectAddr défaut = %q, attendu :7927 (écouteur clair pour le CDP)", c.RedirectAddr)
+	}
+	if c.TLSCert != "" || c.TLSKey != "" || c.ACMEDomain != "" {
+		t.Fatal("aucun certificat fourni ni ACME par défaut : le certificat est auto-généré")
+	}
+	if c.ACMECache != "./acme" {
+		t.Fatalf("ACMECache défaut = %q", c.ACMECache)
+	}
+}
+
+// TLS_ENABLED=false est la porte de sortie pour un déploiement derrière un reverse proxy
+// qui termine déjà le TLS : elle doit rester fonctionnelle.
+func TestLoadTLSDesactivable(t *testing.T) {
+	t.Setenv("TLS_ENABLED", "false")
+	if Load().TLSEnabled {
+		t.Fatal("TLS_ENABLED=false doit désactiver le TLS")
+	}
+	t.Setenv("TLS_ENABLED", "0")
+	if Load().TLSEnabled {
+		t.Fatal("TLS_ENABLED=0 doit désactiver le TLS")
+	}
+	// Une valeur ininterprétable ne doit pas désactiver le TLS par accident.
+	t.Setenv("TLS_ENABLED", "n'importe quoi")
+	if !Load().TLSEnabled {
+		t.Fatal("une valeur invalide doit retomber sur le défaut (true), jamais dégrader la sécurité")
+	}
+}
+
 func TestLoadOverrides(t *testing.T) {
 	t.Setenv("HTTP_ADDR", ":9090")
 	t.Setenv("JWT_TTL", "30m")

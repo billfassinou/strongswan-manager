@@ -143,6 +143,16 @@ type CA struct {
 	CRLPEM    []byte
 }
 
+// ServerCert est le certificat TLS du serveur lui-même (celui que voit le navigateur),
+// distinct des certificats émis pour les passerelles. Sa clé est chiffrée au repos.
+type ServerCert struct {
+	ID       string
+	CertPEM  []byte
+	KeyEnc   []byte
+	SANs     string // SAN sérialisés, pour détecter un changement et réémettre
+	NotAfter time.Time
+}
+
 // RevokedCert identifie un certificat révoqué pour la génération de CRL.
 type RevokedCert struct {
 	Serial    string

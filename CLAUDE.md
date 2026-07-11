@@ -169,6 +169,30 @@ VICI adapter and poller behind interfaces so they can be externalized later.
   nextUpdate window (short in the lab to force re-fetch). Verified in the lab: the gateway
   fetches `/crl.der` and the revoked serial is listed; charon's automatic rejection then
   depends on its CRL cache/`remote.revocation` policy.
+- **HTTPS is the default** (`TLS_ENABLED=true`). **Two listeners**, and this split is load-bearing:
+  - **`:7926` — HTTPS**: UI, API, WebSocket (the front already derives `wss://` from
+    `location.protocol`, so it needed no change).
+  - **`:7927` — PLAIN HTTP** (`HTTP_REDIRECT_ADDR`, `httpapi.PlainRouter`): serves **only**
+    `/crl.der` and `/healthz`; everything else gets a **308** to HTTPS. **Never move the CDP
+    behind TLS**: charon fetches it with its `curl` plugin and would not trust our internal CA —
+    and validating that cert would require the very CRL it is fetching (RFC 5280). `CRL_URL`
+    must therefore stay `http://…:7927/crl.der`. An ACME HTTP-01 challenge is served here too,
+    unredirected.
+  - Certificate sources, in priority order (`buildTLS` in `cmd/server/main.go`): **ACME**
+    (`ACME_DOMAIN`, needs a public domain + port 80) → **your own** (`TLS_CERT`/`TLS_KEY`) →
+    **auto-generated** (`internal/tlsx`, signed by the internal CA, **persisted in DB**,
+    migration `0007_server_tls`, key encrypted with the secrets cipher). It is persisted, not
+    regenerated, so the fingerprint stays stable across restarts — otherwise the admin sees a
+    new browser warning every time and learns to ignore it. Reissued only if absent, expiring
+    (<30 days), or if `TLS_SANS` changed.
+  - **HSTS is deliberately NOT set** with a self-signed cert: it would lock the admin out of
+    their own console.
+  - `TLS_ENABLED=false` keeps the old plain-HTTP behaviour, for deployments behind a TLS
+    reverse proxy. Do not remove it.
+  - **Go 1.23 is the floor**: `golang.org/x/{crypto,net,text,sys,sync}` are **pinned** to the
+    last versions that still declare `go 1.23`. Running `go get @latest` bumps the `go`
+    directive to 1.25 and **breaks the Docker build** (`golang:1.23-alpine`). If you must
+    upgrade them, bump the Dockerfile and `release.yml` together.
 - **Out of scope for this slice** (later increments): OCSP responder, SCEP/EST enrollment
   (rest of EF-24), Vault (replace the app-level cipher), remote mTLS agent,
   pools/RADIUS/policies/daemon-params, IA, multi-tenant/SSO, TimescaleDB, Helm.

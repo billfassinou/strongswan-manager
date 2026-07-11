@@ -1,10 +1,18 @@
 openapi: 3.0.3
 info:
   title: StrongSwan Manager API
-  version: 0.1.0
+  version: 0.2.0
   description: >
     API REST de gestion des tunnels IPsec StrongSwan (tranche verticale).
     Contrat conforme au §10 du cahier des charges. Voie d'intégration : VICI.
+
+    L'API est servie EN HTTPS (port 7926 par défaut). Avec le certificat auto-généré,
+    un client doit soit faire confiance à la CA interne (GET /api/v1/ca), soit désactiver
+    la vérification (curl -k) — à réserver aux tests.
+
+    Un second écouteur, EN CLAIR (port 7927), ne sert que /crl.der et /healthz : le point
+    de distribution de CRL doit rester en HTTP, car c'est charon qui le lit et il ne
+    ferait pas confiance à la CA interne (RFC 5280). Tout le reste y est redirigé en 308.
 servers:
   - url: /api/v1
 security:
@@ -241,12 +249,16 @@ paths:
                 type: object
                 properties:
                   crl_number: { type: integer, example: 3 }
-                  distribution_point: { type: string, example: http://vpn.example.org:7926/crl.der }
+                  distribution_point: { type: string, example: http://vpn.example.org:7927/crl.der }
         '403': { description: Rôle en lecture seule }
   /crl.der:
     servers:
       - url: /
-        description: Hors /api/v1 — route publique, sans authentification
+        description: >
+          Hors /api/v1, publique et sans authentification. Servie sur l'écouteur EN CLAIR
+          (port 7927, HTTP_REDIRECT_ADDR) — pas sur le port HTTPS : charon la récupère avec
+          son plugin curl et ne ferait pas confiance à la CA interne. Valider ce certificat
+          exigerait d'ailleurs cette même CRL (RFC 5280).
     get:
       summary: CRL au format DER (point de distribution lu par les passerelles)
       description: >

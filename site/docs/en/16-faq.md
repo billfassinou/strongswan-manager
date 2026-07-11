@@ -36,9 +36,40 @@ cat sauvegarde.sql | docker compose exec -T postgres psql -U swan swan
 
 ---
 
-### Can the application be served over HTTPS?
+### Is the application served over HTTPS?
 
-The application serves **plain HTTP** on port 7926. Put it behind a TLS reverse proxy (Nginx, Traefik, Caddy). Remember to forward **WebSockets**.
+**Yes, by default, with nothing to configure.** On first startup it issues its own certificate (signed by its internal CA) and serves **HTTPS on port 7926**.
+
+Port **7927** stays on plain HTTP, but it serves **only** the CRL (`/crl.der`) and `/healthz` — everything else there is redirected with a 308 to HTTPS.
+
+Three ways to get a certificate:
+
+| You want… | Do this |
+|---|---|
+| To start right now | Nothing. Auto-generated certificate. **The browser will warn** as long as the internal CA has not been imported. |
+| No warning, public domain | `ACME_DOMAIN=vpn.mondomaine.fr` → **Let's Encrypt**. Requires **port 80 to be reachable**. |
+| To use your corporate PKI | `TLS_CERT` + `TLS_KEY` |
+
+See [Environment variables](A2-configuration.md).
+
+---
+
+### Why does my browser show a security warning?
+
+Because the certificate is **auto-generated**, signed by the application's internal CA — which your browser does not know. **The connection is indeed encrypted**; it is the server's identity that is not attested by a third party.
+
+This is how every self-hosted appliance behaves (Proxmox, pfSense, TrueNAS). Two ways to get rid of it:
+
+- **Import the internal CA** into the trust store of your admin workstations (the **PKI & Certificates** (*PKI & Certificats*) screen, or `GET /api/v1/ca`). Do it once, and it covers all your instances.
+- **Use Let's Encrypt** (`ACME_DOMAIN`) if the console has a public domain.
+
+⚠️ Only ignore the warning if you **know** the certificate is yours. On a network you do not control, a warning can also signal a genuine interception.
+
+---
+
+### I am already behind a TLS reverse proxy. How do I avoid double TLS?
+
+`TLS_ENABLED=false`. The application then serves plain HTTP on 7926, and it is your proxy (Nginx, Traefik, Caddy) that terminates TLS. Remember to **forward WebSockets**.
 
 ---
 

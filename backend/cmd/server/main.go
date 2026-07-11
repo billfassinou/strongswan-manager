@@ -9,8 +9,10 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -19,6 +21,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/acme"
+	"golang.org/x/crypto/acme/autocert"
 
 	"strongswan-manager/internal/auth"
 	"strongswan-manager/internal/config"
@@ -29,6 +33,7 @@ import (
 	"strongswan-manager/internal/poller"
 	"strongswan-manager/internal/secrets"
 	"strongswan-manager/internal/store"
+	"strongswan-manager/internal/tlsx"
 	"strongswan-manager/internal/vici"
 	"strongswan-manager/internal/ws"
 	"strongswan-manager/openapi"
@@ -104,6 +109,23 @@ func run(log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
+	// --- TLS ---
+	// Sans TLS (TLS_ENABLED=false), on ne monte qu'un écouteur en clair : c'est le mode
+	// « derrière un reverse proxy qui termine déjà le TLS ».
+	var plain *http.Server
+	if cfg.TLSEnabled {
+		tlsCfg, acmeHandler, err := buildTLS(baseCtx, cfg, st, cipher, log)
+		if err != nil {
+			return err
+		}
+		srv.TLSConfig = tlsCfg
+		plain = &http.Server{
+			Addr:              cfg.RedirectAddr,
+			Handler:           api.PlainRouter(portOf(cfg.HTTPAddr), acmeHandler),
+			ReadHeaderTimeout: 10 * time.Second,
+		}
+	}
+
 	// Arrêt gracieux
 	go func() {
 		sig := make(chan os.Signal, 1)
@@ -114,13 +136,86 @@ func run(log *slog.Logger) error {
 		shCtx, shCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shCancel()
 		_ = srv.Shutdown(shCtx)
+		if plain != nil {
+			_ = plain.Shutdown(shCtx)
+		}
 	}()
 
-	log.Info("serveur démarré", "addr", cfg.HTTPAddr)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if plain != nil {
+		// L'écouteur en clair sert le CDP (/crl.der) et redirige le reste vers HTTPS.
+		go func() {
+			log.Info("écouteur clair démarré (CRL + redirection HTTPS)", "addr", plain.Addr)
+			if err := plain.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("écouteur clair arrêté", "err", err)
+			}
+		}()
+	}
+
+	if !cfg.TLSEnabled {
+		log.Warn("serveur démarré EN CLAIR (TLS_ENABLED=false) — à n'utiliser que derrière un reverse proxy TLS",
+			"addr", cfg.HTTPAddr)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+		return nil
+	}
+
+	log.Info("serveur démarré en HTTPS", "addr", cfg.HTTPAddr)
+	// Certificat et clé sont déjà dans TLSConfig : les chemins sont vides.
+	if err := srv.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// buildTLS choisit la source du certificat : ACME > certificat fourni > auto-généré.
+func buildTLS(ctx context.Context, cfg config.Config, st *store.Store, cipher *secrets.Cipher, log *slog.Logger) (*tls.Config, http.Handler, error) {
+	base := &tls.Config{MinVersion: tls.VersionTLS12}
+
+	if cfg.ACMEDomain != "" {
+		m := &autocert.Manager{
+			Prompt:     autocert.AcceptTOS,
+			HostPolicy: autocert.HostWhitelist(strings.Split(cfg.ACMEDomain, ",")...),
+			Cache:      autocert.DirCache(cfg.ACMECache),
+			Email:      cfg.ACMEEmail,
+		}
+		base.GetCertificate = m.GetCertificate
+		base.NextProtos = []string{"h2", "http/1.1", acme.ALPNProto}
+		log.Info("TLS: Let's Encrypt (ACME)", "domaine", cfg.ACMEDomain, "cache", cfg.ACMECache,
+			"rappel", "le challenge HTTP-01 exige que le domaine soit joignable sur le port 80")
+		return base, m.HTTPHandler(nil), nil
+	}
+
+	if cfg.TLSCert != "" || cfg.TLSKey != "" {
+		cert, err := tlsx.FromFiles(cfg.TLSCert, cfg.TLSKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		base.Certificates = []tls.Certificate{cert}
+		log.Info("TLS: certificat fourni", "cert", cfg.TLSCert)
+		return base, nil, nil
+	}
+
+	sans := cfg.TLSSans
+	if len(sans) == 0 {
+		sans = tlsx.DefaultSANs()
+	}
+	cert, err := tlsx.EnsureServerCert(ctx, st.ServerTLS, st.CA, cipher, sans)
+	if err != nil {
+		return nil, nil, err
+	}
+	base.Certificates = []tls.Certificate{cert}
+	log.Info("TLS: certificat auto-généré (signé par la CA interne)", "sans", strings.Join(sans, ","),
+		"note", "le navigateur avertira tant que la CA interne n'est pas importée — GET /api/v1/ca")
+	return base, nil, nil
+}
+
+// portOf extrait le port d'une adresse d'écoute (":7926" → "7926").
+func portOf(addr string) string {
+	if _, port, err := net.SplitHostPort(addr); err == nil {
+		return port
+	}
+	return strings.TrimPrefix(addr, ":")
 }
 
 // waitForStore réessaie la connexion à PostgreSQL (le conteneur DB peut démarrer après).

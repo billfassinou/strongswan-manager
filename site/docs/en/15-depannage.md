@@ -74,13 +74,67 @@ This is the **normal behaviour of charon's CRL cache**.
 - Does the certificate actually contain a CDP? It only has one **if `CRL_URL` was set at issuance time**. If not: reissue the certificate.
 - Can the gateway reach the URL?
   ```bash
-  docker compose exec strongswan-a curl -s -o /dev/null -w '%{http_code}\n' http://backend:7926/crl.der
+  docker compose exec strongswan-a curl -s -o /dev/null -w '%{http_code}\n' http://backend:7927/crl.der
   ```
 - Does the CRL actually list the certificate?
   ```bash
-  curl -s http://localhost:7926/crl.der | openssl crl -inform DER -noout -text | grep -A2 Revoked
+  curl -s http://localhost:7927/crl.der | openssl crl -inform DER -noout -text | grep -A2 Revoked
   ```
 - Lower **`CRL_VALIDITY`** to speed up cache renewal (the lab uses `30s`).
+
+---
+
+## "Your connection is not private" / `NET::ERR_CERT_AUTHORITY_INVALID`
+
+The certificate is **auto-generated**, signed by the application's internal CA — which your browser does not know. **The connection is encrypted**; it is the server's *identity* that is not attested.
+
+Three ways out, from the quickest to the cleanest:
+
+1. **Click through**: **Advanced** → **Proceed**. Acceptable locally, not in production.
+2. **Import the internal CA** onto your admin workstations — the warning goes away for good. Steps in [Installation](02-installation.md).
+3. **Get a real certificate**: `ACME_DOMAIN` (Let's Encrypt), or your own via `TLS_CERT`/`TLS_KEY`.
+
+---
+
+## `NET::ERR_CERT_COMMON_NAME_INVALID` — the name does not match
+
+You are reaching the console through a name (`https://vpn.interne.fr:7926`) that is **not** in the certificate. By default, it only covers `localhost`, `127.0.0.1`, `::1` and the machine's hostname.
+
+Declare the access name, then restart — the certificate will be **reissued automatically**:
+
+```bash
+TLS_SANS="localhost,127.0.0.1,vpn.interne.fr" docker compose up -d
+```
+
+---
+
+## `curl` refuses to connect: `SSL certificate problem: self-signed certificate`
+
+Expected, for the same reason. On the command line:
+
+```bash
+curl -sk https://localhost:7926/healthz               # -k : ignore la vérification
+curl -s --cacert ca.crt https://localhost:7926/healthz  # mieux : valide contre la CA interne
+```
+
+---
+
+## `http://localhost:7926` does not answer / answers "400 Bad Request"
+
+Normal: **7926 is now an HTTPS port**. Use `https://localhost:7926`.
+
+The **7927** listener is the plaintext one — but it only serves `/crl.der` and `/healthz`; everything else there is redirected with a 308 to HTTPS.
+
+---
+
+## Let's Encrypt (ACME) fails
+
+The HTTP-01 challenge requires **the public port 80** to reach the application's plaintext listener.
+
+- Publish **`80:7927`** (and `443:7926`) — the challenge arrives on port 80 on the public side.
+- The domain in `ACME_DOMAIN` must **resolve publicly** to this machine.
+- Mount `ACME_CACHE` **as a volume**: without it, every restart requests a new certificate and you will quickly hit Let's Encrypt's **rate limits** (5 failures/hour, then a lockout).
+- ACME is **unusable on a private or air-gapped network** — use the internal CA instead.
 
 ---
 

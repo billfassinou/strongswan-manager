@@ -28,7 +28,7 @@ make web        # npm install + build (produit web/dist, requis avant un build g
 
 L'image Docker builde le front dans un stage `node` — `make run` / `make lab-up` sont donc
 autonomes. En développement du front seul : `cd web && npm run dev` (proxifie `/api` et le
-WebSocket vers `localhost:7926`). Le backend sert `/` (l'app), `/assets/*` et fait un **repli SPA** sur toute route client
+WebSocket vers `https://localhost:7926`, certificat auto-signé accepté). Le backend sert `/` (l'app), `/assets/*` et fait un **repli SPA** sur toute route client
 inconnue. Navigation groupée conforme à la maquette de référence, thème clair/sombre, RBAC
 (masquage des actions selon `/me.can_write`).
 
@@ -54,7 +54,7 @@ vpnuser, alert, daemon}`.
 ## Démarrage rapide (sans lab : adaptateur VICI mock)
 
 ```bash
-make run        # postgres + backend ; API sur http://localhost:7926
+make run        # postgres + backend ; API sur https://localhost:7926
 ```
 
 Le backend applique les migrations, seede 4 comptes (`admin`/`operator`/`auditor`/`viewer`,
@@ -99,7 +99,7 @@ Points d'attention du lab :
   le PEM dans l'adaptateur govici) — charon rejette le PEM brut sur cette version.
 - **Révocation (CRL)** : strongSwan n'expose **pas** de commande VICI pour charger une CRL ;
   la révocation passe par le **CRL Distribution Point** inscrit dans les certificats
-  (`CRL_URL`, ex. `http://backend:7926/crl.der`), récupéré par le plugin `curl` de charon.
+  (`CRL_URL`, ex. `http://backend:7927/crl.der`), récupéré par le plugin `curl` de charon.
   Vérifié : la passerelle fetch `/crl.der` (HTTP 200) et le certificat révoqué y figure.
   L'application automatique par charon dépend ensuite de sa politique de cache/revalidation
   (`remote.revocation`, durée de vie de la CRL via `CRL_VALIDITY`).
@@ -131,9 +131,9 @@ Points d'attention du lab :
 ## Exemple
 
 ```bash
-TOKEN=$(curl -s localhost:7926/api/v1/auth/login -d '{"identity":"admin","password":"admin1234"}' | jq -r .token)
-GW=$(curl -s localhost:7926/api/v1/gateways -H "Authorization: Bearer $TOKEN" | jq -r .items[0].id)
-curl -s localhost:7926/api/v1/tunnels -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
+TOKEN=$(curl -sk https://localhost:7926/api/v1/auth/login -d '{"identity":"admin","password":"admin1234"}' | jq -r .token)
+GW=$(curl -sk https://localhost:7926/api/v1/gateways -H "Authorization: Bearer $TOKEN" | jq -r .items[0].id)
+curl -sk https://localhost:7926/api/v1/tunnels -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{
   "name":"paris-dakar","gateway_id":"'"$GW"'","type":"site-to-site","ike_version":2,
   "local":{"addr":"203.0.113.10","subnets":["10.1.0.0/16"]},
   "remote":{"addr":"198.51.100.20","subnets":["10.2.0.0/16"]},

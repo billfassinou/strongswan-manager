@@ -28,9 +28,10 @@ type Store struct {
 	Versions *VersionRepo
 	Audit    *AuditRepo
 	Secrets  *SecretRepo
-	CA       *CARepo
-	Certs    *CertRepo
-	Config   *ConfigRepo
+	CA        *CARepo
+	Certs     *CertRepo
+	Config    *ConfigRepo
+	ServerTLS *ServerTLSRepo
 }
 
 // New ouvre le pool et instancie les repositories.
@@ -52,6 +53,7 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	s.CA = &CARepo{pool}
 	s.Certs = &CertRepo{pool}
 	s.Config = &ConfigRepo{pool}
+	s.ServerTLS = &ServerTLSRepo{pool}
 	return s, nil
 }
 

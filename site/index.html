@@ -68,7 +68,8 @@
     <div class="quick">
       <pre>git clone &lt;dépôt&gt; &amp;&amp; cd strongswan/backend
 make run
-# ouvrez http://localhost:7926 — connexion : admin / admin1234</pre>
+# ouvrez https://localhost:7926 — connexion : admin / admin1234
+# HTTPS d&#39;emblée (certificat auto-généré)</pre>
     </div>
   </div>
 </div>
@@ -303,7 +304,7 @@ make run
     <p class="sub">Docker suffit. L'application se lance avec sa base, ses migrations et ses comptes de démonstration.</p>
     <pre>cd backend
 make run                 # PostgreSQL + application (mode démo)
-# → http://localhost:7926   admin / admin1234
+# → https://localhost:7926   admin / admin1234
 
 make lab-up              # + 2 vraies passerelles strongSwan (tunnels réels)
 make test                # la suite de tests</pre>

@@ -36,9 +36,40 @@ cat sauvegarde.sql | docker compose exec -T postgres psql -U swan swan
 
 ---
 
-### Peut-on servir l'application en HTTPS ?
+### L'application est-elle servie en HTTPS ?
 
-L'application sert du **HTTP en clair** sur le port 7926. Placez-la derrière un reverse proxy TLS (Nginx, Traefik, Caddy). Pensez à relayer les **WebSockets**.
+**Oui, par défaut, et sans rien configurer.** Au premier démarrage, elle émet son propre certificat (signé par sa CA interne) et sert en **HTTPS sur le port 7926**.
+
+Le port **7927** reste en HTTP en clair, mais il ne sert **que** la CRL (`/crl.der`) et `/healthz` — tout le reste y est redirigé en 308 vers HTTPS.
+
+Trois façons d'obtenir un certificat :
+
+| Vous voulez… | Faites |
+|---|---|
+| Démarrer tout de suite | Rien. Certificat auto-généré. **Le navigateur avertira** tant que la CA interne n'est pas importée. |
+| Aucun avertissement, domaine public | `ACME_DOMAIN=vpn.mondomaine.fr` → **Let's Encrypt**. Exige le **port 80 joignable**. |
+| Utiliser votre PKI d'entreprise | `TLS_CERT` + `TLS_KEY` |
+
+Voir [Variables d'environnement](A2-configuration.md).
+
+---
+
+### Pourquoi mon navigateur affiche un avertissement de sécurité ?
+
+Parce que le certificat est **auto-généré**, signé par la CA interne de l'application — que votre navigateur ne connaît pas. **La connexion est bien chiffrée** ; c'est l'identité du serveur qui n'est pas attestée par un tiers.
+
+C'est le comportement de tout équipement auto-hébergé (Proxmox, pfSense, TrueNAS). Deux façons de le supprimer :
+
+- **Importer la CA interne** dans le magasin de confiance de vos postes d'administration (écran **PKI & Certificats**, ou `GET /api/v1/ca`). À faire une fois, vaut pour toutes vos instances.
+- **Utiliser Let's Encrypt** (`ACME_DOMAIN`) si la console a un domaine public.
+
+⚠️ N'ignorez l'avertissement que si vous **savez** que le certificat est le vôtre. Sur un réseau non maîtrisé, un avertissement peut aussi signaler une véritable interception.
+
+---
+
+### Je suis déjà derrière un reverse proxy TLS. Comment éviter le double TLS ?
+
+`TLS_ENABLED=false`. L'application sert alors en HTTP en clair sur 7926, et c'est votre proxy (Nginx, Traefik, Caddy) qui termine le TLS. Pensez à **relayer les WebSockets**.
 
 ---
 

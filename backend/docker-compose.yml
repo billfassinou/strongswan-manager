@@ -25,6 +25,10 @@ services:
         condition: service_healthy
     environment:
       HTTP_ADDR: ":7926"
+      HTTP_REDIRECT_ADDR: ":7927"
+      # SAN du certificat auto-généré : "backend" est le nom du service dans le réseau
+      # docker — sans lui, une passerelle qui appellerait le backend en HTTPS le rejetterait.
+      TLS_SANS: "localhost,127.0.0.1,::1,backend"
       DATABASE_URL: "postgres://swan:swan@postgres:5432/swan?sslmode=disable"
       JWT_SECRET: "dev-insecure-change-me"
       SEED_ADMIN_PASSWORD: "admin1234"
@@ -36,7 +40,7 @@ services:
       # certificats ; les passerelles y récupèrent la CRL (plugin curl) pour la révocation.
       CRL_URL: "${CRL_URL-}"
       CRL_VALIDITY: "${CRL_VALIDITY-}"
-    ports: ["7926:7926"]
+    ports: ["7926:7926", "7927:7927"]
     volumes:
       - vol_a:/gw/a
       - vol_b:/gw/b

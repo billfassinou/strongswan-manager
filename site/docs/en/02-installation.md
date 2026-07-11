@@ -16,12 +16,67 @@ Nothing else is needed: PostgreSQL, the database migrations and the front end ar
 ```bash
 git clone <dépôt> && cd strongswan/backend
 make run
-# → ouvrez http://localhost:7926
+# → ouvrez https://localhost:7926
 ```
 
-`make run` builds the image, starts PostgreSQL, applies the migrations, creates the demo accounts, generates the internal certificate authority, then launches the application.
+`make run` builds the image, starts PostgreSQL, applies the migrations, creates the demo accounts, generates the internal certificate authority **and the server's TLS certificate**, then launches the application.
 
-**What you should see**: after a few seconds, `http://localhost:7926` shows the login screen.
+**What you should see**: after a few seconds, `https://localhost:7926` shows the login screen — **preceded by a security warning from your browser**.
+
+---
+
+## First access: the browser warning
+
+This is normal, and it is not a defect: the application **generated its own certificate**, signed
+by its internal CA. Your browser does not know that authority, so it warns you.
+
+> **The connection really is encrypted.** What is not attested is the server's *identity* — not the
+> confidentiality of the exchange. This is exactly how Proxmox, pfSense or TrueNAS behave on first
+> startup.
+
+To continue: **Advanced** → **Proceed to localhost**.
+
+### Making the warning go away (recommended for long-term use)
+
+Import the internal CA into the trust store of your admin workstations. This is a **one-off** —
+it will then cover all your instances.
+
+```bash
+# récupérer la CA (elle est publique : aucun secret ici)
+curl -sk https://localhost:7926/api/v1/ca \
+  -H "Authorization: Bearer $TOKEN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["cert_pem"])' > ca.crt
+```
+
+You will also find it in the **PKI & Certificates** (*PKI & Certificats*) screen.
+
+- **macOS**: double-click `ca.crt` → *System* keychain → set it to "Always Trust".
+- **Linux**: `sudo cp ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`
+- **Windows**: `certutil -addstore -f Root ca.crt` (as administrator).
+
+### The other options
+
+| You want… | Do this |
+|---|---|
+| A **publicly trusted** certificate, with no warning | `ACME_DOMAIN=vpn.mondomaine.fr` → **Let's Encrypt**. Requires a **public domain** and **port 80 reachable from the Internet**. |
+| To use **your** certificate (corporate PKI) | `TLS_CERT` and `TLS_KEY` |
+| To terminate TLS on an existing **reverse proxy** | `TLS_ENABLED=false` |
+
+⚠️ If you reach the console through a domain name, **declare it** in `TLS_SANS`
+(e.g. `TLS_SANS="localhost,127.0.0.1,vpn.interne.fr"`) — otherwise the browser will report, on top
+of everything else, a name mismatch. See [Environment variables](A2-configuration.md).
+
+---
+
+## The two ports
+
+| Port | Protocol | Serves |
+|---|---|---|
+| **7926** | **HTTPS** | The interface, the API, real time. |
+| **7927** | Plain HTTP | Only the **CRL** (`/crl.der`) and `/healthz`. The rest is redirected to HTTPS. |
+
+Port 7927 is not an oversight: the CRL distribution point **must** stay on HTTP, because it is
+charon that reads it and charon would not trust our internal CA. Details in
+[Environment variables](A2-configuration.md).
 
 ---
 
@@ -77,9 +132,14 @@ docker compose up --build -d
 
 > ⚠️ **Do not change `SECRETS_KEY` after the fact**: the secrets and private keys already stored were encrypted with the old value and would become unreadable.
 
+> ⚠️ **`SECRETS_KEY` also encrypts the key of your TLS certificate.** Changing it would leave the
+> server unable to read it back — you would have to reissue one.
+
 Other production considerations:
 
-- Put the application **behind an HTTPS reverse proxy** (Nginx, Traefik, Caddy). The application serves plain HTTP.
+- **TLS is already on**: the application serves HTTPS out of the box. Give it a publicly trusted
+  certificate (`ACME_DOMAIN`) or your own (`TLS_CERT`/`TLS_KEY`), or import its internal CA onto
+  your admin workstations.
 - Restrict `CORS_ORIGINS` to your domain rather than `*`.
 - Back up the PostgreSQL database (it holds the configuration, the PKI and the audit log).
 

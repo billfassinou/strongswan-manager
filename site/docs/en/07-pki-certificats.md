@@ -69,7 +69,7 @@ StrongSwan has **no command to "push" a CRL**. The standard mechanism is the **C
 That URL is configured with the **`CRL_URL`** variable, for example:
 
 ```
-CRL_URL=http://mon-serveur:7926/crl.der
+CRL_URL=http://my-server:7927/crl.der   # plain http, on the cleartext listener
 ```
 
 The **`/crl.der`** endpoint is **public** (no authentication): this is expected — a CRL is a public object, and gateways must be able to read it without a token.
@@ -97,7 +97,7 @@ See [Troubleshooting](15-depannage.md) if a revoked certificate is still accepte
 ## Checking the CRL yourself
 
 ```bash
-curl -s http://localhost:7926/crl.der | openssl crl -inform DER -noout -text
+curl -s http://localhost:7927/crl.der | openssl crl -inform DER -noout -text
 ```
 
 You should see the CRL number and the revoked serial numbers.
