@@ -1,0 +1,19 @@
+# Passerelle strongSwan 6.x pour le lab VICI (Debian 12).
+FROM debian:12-slim
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        strongswan strongswan-swanctl \
+        libcharon-extra-plugins libstrongswan-standard-plugins libstrongswan-extra-plugins \
+        iproute2 iptables iputils-ping && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /vicirun
+COPY lab/strongswan.conf /etc/strongswan.conf
+COPY lab/swanctl.conf /etc/swanctl/swanctl.conf
+COPY lab/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# swanctl utilisera ce socket par défaut dans le conteneur (pour l'inspection manuelle).
+ENV VICI_SOCKET=unix:///vicirun/charon.vici
+
+CMD ["/entrypoint.sh"]

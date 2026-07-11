@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>StrongSwan Manager — the web console for your IPsec VPNs</title>
+<meta name="description" content="A web admin console for StrongSwan: IPsec tunnels in a few clicks, built-in PKI, real-time monitoring, tamper-proof audit log. Open source, driven by the VICI API."/>
+<link rel="canonical" href="https://billfassinou.github.io/strongswan-manager/en/"/>
+<link rel="alternate" hreflang="fr" href="https://billfassinou.github.io/strongswan-manager/"/>
+<link rel="alternate" hreflang="en" href="https://billfassinou.github.io/strongswan-manager/en/"/>
+<link rel="alternate" hreflang="x-default" href="https://billfassinou.github.io/strongswan-manager/"/>
+<meta property="og:type" content="website"/>
+<meta property="og:site_name" content="StrongSwan Manager"/>
+<meta property="og:locale" content="en_US"/>
+<meta property="og:locale:alternate" content="fr_FR"/>
+<meta property="og:url" content="https://billfassinou.github.io/strongswan-manager/en/"/>
+<meta property="og:title" content="StrongSwan Manager — the web console for your IPsec VPNs"/>
+<meta property="og:description" content="IPsec tunnels in a few clicks, built-in PKI, real-time monitoring, tamper-proof audit log. Open source, driven by the VICI API."/>
+<meta property="og:image" content="https://billfassinou.github.io/strongswan-manager/assets/og-image.png"/>
+<meta property="og:image:width" content="1200"/>
+<meta property="og:image:height" content="630"/>
+<meta property="og:image:alt" content="StrongSwan Manager — run StrongSwan from a web console"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:title" content="StrongSwan Manager — the web console for your IPsec VPNs"/>
+<meta name="twitter:description" content="IPsec tunnels in a few clicks, built-in PKI, real-time monitoring, tamper-proof audit log. Open source, driven by the VICI API."/>
+<meta name="twitter:image" content="https://billfassinou.github.io/strongswan-manager/assets/og-image.png"/>
+<link rel="icon" href="../assets/logo.svg" type="image/svg+xml"/>
+<link rel="stylesheet" href="../assets/styles.css"/>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="index.html" style="color:var(--text)">
+      <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="29" height="29" rx="8" fill="var(--accent)"/>
+        <path d="M16 7l7 3v5c0 4.4-2.9 7.6-7 9-4.1-1.4-7-4.6-7-9v-5l7-3z" fill="none" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="M13 16.2l2.2 2.2L20 13.4" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      StrongSwan <span>Manager</span>
+    </a>
+    <nav class="links">
+      <a href="#features">Features</a>
+      <a href="#preview">Preview</a>
+      <a href="#architecture">Architecture</a>
+      <a href="#editions">Editions</a>
+      <a href="../docs/en/index.html">Documentation</a>
+      <button class="btn sm" id="theme" title="Light/dark theme" aria-label="Toggle theme">◑</button>
+      <a class="btn sm" href="../index.html" hreflang="fr">FR</a>
+    </nav>
+  </div>
+</header>
+
+<div class="hero">
+  <div class="wrap">
+    <span class="eyebrow">🛡️ IPsec VPN · open source</span>
+    <h1>Run StrongSwan from a web console,<br/>never from a config file again.</h1>
+    <p class="lead">
+      StrongSwan Manager replaces hand-editing <code>swanctl.conf</code> and the command line with a clear interface:
+      guided IPsec tunnel creation, built-in PKI, real-time monitoring, an automatic security score and a tamper-proof
+      audit log. Everything goes through the official <strong>VICI API</strong> — not a single configuration file is
+      written by hand.
+    </p>
+    <div class="cta">
+      <a class="btn pri" href="../docs/en/index.html#/02-installation">Get started in 3 commands</a>
+      <a class="btn" href="../docs/en/index.html">Read the documentation</a>
+    </div>
+    <div class="quick">
+      <pre>git clone &lt;repository&gt; &amp;&amp; cd strongswan/backend
+make run
+# open http://localhost:8080 — sign in: admin / admin1234</pre>
+    </div>
+  </div>
+</div>
+
+<section id="problem">
+  <div class="wrap">
+    <h2>The problem</h2>
+    <p class="sub">StrongSwan is powerful and standards-compliant. But operating it is still a text-file affair.</p>
+    <div class="grid g3">
+      <div class="card">
+        <h3>Fragile configuration</h3>
+        <p>Editing <code>swanctl.conf</code> by hand: one stray comma and the tunnel stops coming up. Nothing is
+          validated before it is applied.</p>
+      </div>
+      <div class="card">
+        <h3>No visibility</h3>
+        <p><code>swanctl --list-sas</code> on every gateway, by hand. No overview, no alerting, no history.</p>
+      </div>
+      <div class="card">
+        <h3>Invisible security</h3>
+        <p>A tunnel on IKEv1 / 3DES / MD5 can survive for years without anyone noticing. And no trace of who changed
+          what.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2>What StrongSwan Manager does</h2>
+    <p class="sub">Every feature listed here is implemented and usable the moment you install it.</p>
+    <div class="grid g3">
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h18M6 12a3 3 0 013-3h6a3 3 0 013 3M6 12a3 3 0 003 3h6a3 3 0 003-3"/></svg></div>
+        <h3>Tunnels in a few clicks</h3>
+        <p>Site-to-site, host-to-host, road warrior. A guided form, validation before anything is applied, and a
+          <strong>hot load through VICI</strong>. Bring up, tear down, rekey — all from the interface.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 3v6c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6z"/></svg></div>
+        <h3>Automatic security score</h3>
+        <p>Every tunnel is scored out of 100. IKEv1, 3DES, MD5, modp1024, PFS turned off, no ML-KEM: each one is
+          flagged, with a <em>Fix it</em> button.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="8" cy="8" r="4"/><path d="M11 11l7 7M15 15l2 2 3-1 1-3-2-2"/></svg></div>
+        <h3>Built-in PKI</h3>
+        <p>Internal certificate authority, X.509 (ECDSA) certificate issuance, certificate-based authentication,
+          <strong>revocation and a CRL</strong> published on a distribution point.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 10V7a5 5 0 0110 0v3M5 10h14v11H5z"/></svg></div>
+        <h3>Secret vault</h3>
+        <p>PSK, EAP and XAuth secrets encrypted at rest with AES-256-GCM. Values are <strong>never</strong> shown
+          again — not by the interface, not by the API.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></div>
+        <h3>Real-time monitoring</h3>
+        <p>The server polls SA state over VICI and pushes every change over <strong>WebSocket</strong>. Metrics are
+          exposed in Prometheus format.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+        <h3>Tamper-proof audit</h3>
+        <p>An <em>append-only</em> log enforced by the database and chained by hash: who did what, and when. Any
+          attempt to alter it is rejected.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 3v12M6 21a3 3 0 100-6 3 3 0 000 6zM18 9a3 3 0 100-6 3 3 0 000 6zm0 0v3a3 3 0 01-3 3H9"/></svg></div>
+        <h3>Versions &amp; rollback</h3>
+        <p>Every configuration you apply creates a timestamped, attributed version. Going back takes one click.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7h18v4H3zM3 13h18v4H3zM7 9h.01M7 15h.01"/></svg></div>
+        <h3>All of StrongSwan, not just the basics</h3>
+        <p>Virtual IP pools, RADIUS/AAA, policies &amp; routing, authorities, VPN users, alert rules, daemon
+          settings — all configurable.</p>
+      </div>
+      <div class="card">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 00-8 0v2M12 11a4 4 0 100-8 4 4 0 000 8"/></svg></div>
+        <h3>Roles &amp; permissions</h3>
+        <p>Four roles (admin, operator, auditor, viewer). The interface hides, the API refuses: read-only really is
+          read-only.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="preview">
+  <div class="wrap">
+    <h2>The interface</h2>
+    <p class="sub">One console: monitoring, configuration, security, operations.</p>
+    <div class="shot">
+      <div class="bar"><i></i><i></i><i></i></div>
+      <div class="body">
+        <div class="sb">
+          <b>Monitoring</b>
+          <span class="on">Dashboard</span>
+          <span>Connections</span>
+          <span>Topology</span>
+          <span>Audit log</span>
+          <b>Configuration</b>
+          <span>Tunnel editor</span>
+          <span>PKI &amp; Certificates</span>
+          <span>Secrets</span>
+        </div>
+        <div class="main">
+          <div class="stats">
+            <div class="stat"><u>Up</u><b style="color:var(--up)">12</b></div>
+            <div class="stat"><u>Negotiating</u><b style="color:var(--warn)">1</b></div>
+            <div class="stat"><u>Down</u><b style="color:var(--down)">1</b></div>
+            <div class="stat"><u>Gateways</u><b>3</b></div>
+          </div>
+          <table>
+            <tr><td><b>paris-dakar</b></td><td style="color:var(--text-dim)">site-to-site · IKEv2</td><td><span class="pill up">up</span></td><td style="text-align:right;color:var(--up);font-weight:700">100</td></tr>
+            <tr><td><b>lyon-aws</b></td><td style="color:var(--text-dim)">host-to-host · IKEv2</td><td><span class="pill warn">negotiating</span></td><td style="text-align:right;color:var(--warn);font-weight:700">94</td></tr>
+            <tr><td><b>dakar-legacy</b></td><td style="color:var(--text-dim)">site-to-site · IKEv1</td><td><span class="pill up">up</span></td><td style="text-align:right;color:var(--down);font-weight:700">12</td></tr>
+          </table>
+          <p style="margin:0;color:var(--text-faint);font-size:12.5px">A score of 12 flags a tunnel still on IKEv1/3DES/MD5 — one click on <em>Fix it</em> opens the editor, pre-filled.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="architecture">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">
+      The React front end is <strong>embedded in the Go binary</strong> and served from the same origin as the API. The
+      server talks to each gateway over <strong>VICI</strong>, StrongSwan's official control interface — never by
+      writing configuration files.
+    </p>
+    <div class="card" style="padding:26px">
+      <svg viewBox="0 0 900 210" width="100%" style="max-height:230px" role="img" aria-label="React front end to the Go API, then VICI to charon; PostgreSQL and Prometheus alongside">
+        <defs>
+          <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+            <path d="M0 0l9 4.5L0 9z" fill="var(--text-faint)"/>
+          </marker>
+        </defs>
+        <g font-family="var(--sans)" font-size="13" text-anchor="middle">
+          <rect x="20" y="70" width="150" height="70" rx="12" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.6"/>
+          <text x="95" y="98" fill="var(--text)" font-weight="600">React front end</text>
+          <text x="95" y="118" fill="var(--text-dim)" font-size="11">browser / PWA</text>
+
+          <rect x="250" y="60" width="180" height="90" rx="12" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1.6"/>
+          <text x="340" y="92" fill="var(--text)" font-weight="600">Go API</text>
+          <text x="340" y="112" fill="var(--text-dim)" font-size="11">REST + WebSocket</text>
+          <text x="340" y="128" fill="var(--text-dim)" font-size="11">JWT · RBAC · audit</text>
+
+          <rect x="510" y="70" width="150" height="70" rx="12" fill="var(--surface-2)" stroke="var(--border)" stroke-width="1.6"/>
+          <text x="585" y="98" fill="var(--text)" font-weight="600">VICI</text>
+          <text x="585" y="118" fill="var(--text-dim)" font-size="11">load-conn · list-sas</text>
+
+          <rect x="740" y="70" width="140" height="70" rx="12" fill="var(--up-soft)" stroke="var(--up)" stroke-width="1.6"/>
+          <text x="810" y="98" fill="var(--text)" font-weight="600">charon</text>
+          <text x="810" y="118" fill="var(--text-dim)" font-size="11">StrongSwan gateway</text>
+
+          <rect x="250" y="10" width="85" height="34" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="292" y="32" fill="var(--text-dim)" font-size="11">PostgreSQL</text>
+          <rect x="345" y="10" width="85" height="34" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+          <text x="387" y="32" fill="var(--text-dim)" font-size="11">Prometheus</text>
+
+          <line x1="172" y1="105" x2="244" y2="105" stroke="var(--text-faint)" stroke-width="1.6" marker-end="url(#ar)"/>
+          <line x1="432" y1="105" x2="504" y2="105" stroke="var(--text-faint)" stroke-width="1.6" marker-end="url(#ar)"/>
+          <line x1="662" y1="105" x2="734" y2="105" stroke="var(--text-faint)" stroke-width="1.6" marker-end="url(#ar)"/>
+          <line x1="292" y1="58" x2="292" y2="48" stroke="var(--text-faint)" stroke-width="1.4"/>
+          <line x1="387" y1="58" x2="387" y2="48" stroke="var(--text-faint)" stroke-width="1.4"/>
+        </g>
+      </svg>
+    </div>
+    <div class="grid g4" style="margin-top:16px">
+      <div class="card"><h3>Go</h3><p>Modular backend, a single binary, small footprint, air-gap friendly.</p></div>
+      <div class="card"><h3>React + TypeScript</h3><p>An embedded SPA served by the backend. No runtime dependency beyond React.</p></div>
+      <div class="card"><h3>PostgreSQL</h3><p>Configuration, versions, PKI and an immutable audit log (enforced by a trigger).</p></div>
+      <div class="card"><h3>Docker</h3><p>One command starts everything, including a lab with real gateways.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="editions">
+  <div class="wrap">
+    <h2>Open-core model</h2>
+    <p class="sub">The core is free and complete. Advanced modules belong to the Premium and Enterprise editions.</p>
+    <div class="card" style="overflow-x:auto">
+      <table class="ed">
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th><span class="pill a">Community</span></th>
+            <th><span class="pill premium">Premium</span></th>
+            <th><span class="pill enterprise">Enterprise</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Unlimited tunnels, guided editor, validation &amp; rollback</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Internal PKI, secrets, pools, RADIUS, policies, authorities</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Real-time monitoring, Prometheus export, audit log</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>REST + WebSocket API, logical topology</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Compliance (ANSSI/ISO/PCI), executive reports</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Advanced multi-channel alerting, geographic map</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>AI assistant &amp; advanced anomaly detection</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Multi-tenant / MSP, SAML-OIDC SSO</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Orchestrated high availability, ZTP at scale, support</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="sub" style="margin-top:16px">
+      The <strong>Community</strong> edition — the one you install in three commands — already covers the whole of
+      StrongSwan's day-to-day operation.
+    </p>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <h2>Secure by design</h2>
+    <div class="grid g3">
+      <div class="card"><h3>Nothing is applied unvalidated</h3><p>An invalid or dangerous configuration is refused before it ever reaches the daemon. No destructive action without confirmation, and rollback is always available.</p></div>
+      <div class="card"><h3>Secrets stay secret</h3><p>AES-256-GCM encryption at rest. Private keys and PSKs never leave the API — not even for an administrator.</p></div>
+      <div class="card"><h3>Tamper-proof trail</h3><p>An append-only audit log chained by hash: the database itself refuses any after-the-fact modification.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <h2>Get started</h2>
+    <p class="sub">Docker is all you need. The app starts with its database, its migrations and its demo accounts.</p>
+    <pre>cd backend
+make run                 # PostgreSQL + application (demo mode)
+# → http://localhost:8080   admin / admin1234
+
+make lab-up              # + 2 real strongSwan gateways (real tunnels)
+make test                # the test suite</pre>
+    <div class="cta" style="margin-top:22px">
+      <a class="btn pri" href="../docs/en/index.html">Full documentation</a>
+      <a class="btn" href="../docs/en/index.html#/03-decouvrir-linterface">Guided tour of the interface</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>StrongSwan Manager — the web console for IPsec VPNs.</span>
+    <span class="sp"><a href="../docs/en/index.html">Documentation</a> · <a href="../index.html">Français</a></span>
+  </div>
+</footer>
+
+<script>
+  // Theme toggle (system preference by default, choice remembered).
+  const root = document.documentElement;
+  const saved = localStorage.getItem("ssm_site_theme");
+  if (saved) root.setAttribute("data-theme", saved);
+  document.getElementById("theme").addEventListener("click", () => {
+    const cur = root.getAttribute("data-theme") ||
+      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const next = cur === "dark" ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    localStorage.setItem("ssm_site_theme", next);
+  });
+</script>
+</body>
+</html>

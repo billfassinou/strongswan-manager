@@ -1,0 +1,66 @@
+# Lab de développement.
+#   docker compose up                       -> postgres + backend (adaptateur VICI mock)
+#   docker compose --profile lab up --build -> ajoute 2 passerelles strongSwan (VICI réel)
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: swan
+      POSTGRES_PASSWORD: swan
+      POSTGRES_DB: swan
+    # Pas de publication de port : le backend accède à postgres via le réseau compose.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swan"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: .
+    # En dev/lab, le backend tourne en root pour accéder au socket VICI (root:root 0770)
+    # partagé par les conteneurs strongSwan. En production, l'accès passe par l'agent mTLS.
+    user: "0:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: "postgres://swan:swan@postgres:5432/swan?sslmode=disable"
+      JWT_SECRET: "dev-insecure-change-me"
+      SEED_ADMIN_PASSWORD: "admin1234"
+      POLL_INTERVAL: "3s"
+      # Vide par défaut (adaptateur mock). Le profil lab l'alimente via l'environnement hôte
+      # (voir la cible make lab-up) pour brancher la VRAIE VICI.
+      VICI_ENDPOINTS: "${VICI_ENDPOINTS-}"
+      # CRL Distribution Point : URL (atteignable par les passerelles) inscrite dans les
+      # certificats ; les passerelles y récupèrent la CRL (plugin curl) pour la révocation.
+      CRL_URL: "${CRL_URL-}"
+      CRL_VALIDITY: "${CRL_VALIDITY-}"
+    ports: ["8080:8080"]
+    volumes:
+      - vol_a:/gw/a
+      - vol_b:/gw/b
+
+  strongswan-a:
+    profiles: ["lab"]
+    build:
+      context: .
+      dockerfile: Dockerfile.strongswan
+    cap_add: ["NET_ADMIN", "SYS_MODULE"]
+    privileged: true
+    volumes:
+      - vol_a:/vicirun
+
+  strongswan-b:
+    profiles: ["lab"]
+    build:
+      context: .
+      dockerfile: Dockerfile.strongswan
+    cap_add: ["NET_ADMIN", "SYS_MODULE"]
+    privileged: true
+    volumes:
+      - vol_b:/vicirun
+
+volumes:
+  vol_a:
+  vol_b:

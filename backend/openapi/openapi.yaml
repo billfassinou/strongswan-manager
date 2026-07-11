@@ -1,0 +1,428 @@
+openapi: 3.0.3
+info:
+  title: StrongSwan Manager API
+  version: 0.1.0
+  description: >
+    API REST de gestion des tunnels IPsec StrongSwan (tranche verticale).
+    Contrat conforme au §10 du cahier des charges. Voie d'intégration : VICI.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /auth/login:
+    post:
+      summary: Authentification (comptes locaux) → JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                identity: { type: string, example: admin }
+                password: { type: string, example: admin1234 }
+      responses:
+        '200':
+          description: Jeton émis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  expires_at: { type: string }
+                  role: { type: string }
+                  identity: { type: string }
+        '401': { description: Identifiants invalides }
+  /me:
+    get:
+      summary: Profil du compte authentifié
+      responses:
+        '200': { description: OK }
+  /gateways:
+    get:
+      summary: Liste des passerelles gérées
+      responses:
+        '200': { description: OK }
+  /tunnels:
+    get:
+      summary: Liste des tunnels (état live inclus)
+      responses:
+        '200': { description: OK }
+    post:
+      summary: Créer un tunnel (validation, scoring, application VICI à chaud)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TunnelRequest' }
+      responses:
+        '201':
+          description: Tunnel créé
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TunnelResponse' }
+        '422':
+          description: Erreur de validation
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '403': { description: Rôle en lecture seule }
+  /tunnels/{id}:
+    get:
+      summary: Détail d'un tunnel
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: OK }, '404': { description: Introuvable } }
+    put:
+      summary: Modifier un tunnel
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TunnelRequest' }
+      responses: { '200': { description: OK }, '422': { description: Validation } }
+    delete:
+      summary: Supprimer un tunnel (unload VICI)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '204': { description: Supprimé } }
+  /tunnels/{id}/initiate:
+    post:
+      summary: Établir la CHILD_SA (VICI initiate)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '202': { description: Accepté } }
+  /tunnels/{id}/terminate:
+    post:
+      summary: Couper la CHILD_SA (VICI terminate)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '202': { description: Accepté } }
+  /tunnels/{id}/rekey:
+    post:
+      summary: Renégocier la CHILD_SA (VICI rekey)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '202': { description: Accepté } }
+  /tunnels/{id}/versions:
+    get:
+      summary: Historique des versions de configuration
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '200': { description: OK } }
+  /tunnels/{id}/rollback:
+    post:
+      summary: Restaurer une version antérieure
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { version: { type: integer } }
+      responses: { '200': { description: OK } }
+  /secrets:
+    get:
+      summary: Liste des secrets (valeurs masquées, jamais renvoyées en clair)
+      responses: { '200': { description: OK } }
+    post:
+      summary: Créer un secret (chiffré au repos)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type, value]
+              properties:
+                name: { type: string, example: psk-dakar }
+                type: { type: string, enum: [psk, eap, xauth] }
+                value: { type: string, example: "secret-partagé" }
+                used_by: { type: string, example: paris-dakar }
+      responses:
+        '201': { description: Secret créé (valeur masquée) }
+        '422': { description: Type invalide }
+        '403': { description: Rôle en lecture seule }
+  /secrets/{id}:
+    delete:
+      summary: Supprimer un secret
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses: { '204': { description: Supprimé } }
+  /ca:
+    get:
+      summary: Autorité de certification interne (certificat public, PEM)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  name: { type: string, example: StrongSwan Manager CA }
+                  cert_pem: { type: string, example: "-----BEGIN CERTIFICATE-----\n..." }
+        '404': { description: Aucune autorité de certification }
+  /certificates:
+    get:
+      summary: Liste des certificats émis (clé privée jamais renvoyée)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Certificate' }
+    post:
+      summary: Émettre un certificat X.509 (ECDSA) signé par la CA interne
+      description: >
+        Le point de distribution de CRL (CDP) inscrit dans le certificat provient de la
+        variable d'environnement CRL_URL. Si elle est vide, le certificat émis ne porte
+        aucun CDP et la révocation ne pourra pas lui être appliquée.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, cn]
+              properties:
+                name: { type: string, example: gw-paris }
+                cn: { type: string, example: gw-paris }
+                kind: { type: string, enum: [server, client], default: server }
+                sans:
+                  type: array
+                  items: { type: string }
+                  example: ["203.0.113.10", "vpn.example.org"]
+      responses:
+        '201':
+          description: Certificat émis
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Certificate' }
+        '400': { description: name et cn requis }
+        '403': { description: Rôle en lecture seule }
+        '409': { description: Un certificat de ce nom existe déjà }
+        '424': { description: Autorité de certification indisponible }
+  /certificates/{id}/revoke:
+    post:
+      summary: Révoquer un certificat (régénère la CRL)
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200':
+          description: Révoqué
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { status: { type: string, example: revoked } }
+        '403': { description: Rôle en lecture seule }
+        '404': { description: Certificat introuvable }
+  /crl:
+    get:
+      summary: CRL courante au format PEM
+      responses:
+        '200':
+          description: OK
+          content:
+            application/x-pem-file:
+              schema: { type: string }
+  /crl/publish:
+    post:
+      summary: Régénérer et publier la CRL
+      responses:
+        '200':
+          description: Publiée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  crl_number: { type: integer, example: 3 }
+                  distribution_point: { type: string, example: http://vpn.example.org:8080/crl.der }
+        '403': { description: Rôle en lecture seule }
+  /crl.der:
+    servers:
+      - url: /
+        description: Hors /api/v1 — route publique, sans authentification
+    get:
+      summary: CRL au format DER (point de distribution lu par les passerelles)
+      description: >
+        C'est l'URL pointée par le CRL Distribution Point des certificats émis, récupérée
+        par charon (plugin curl). Publique par nécessité : le démon ne s'authentifie pas.
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/pkix-crl:
+              schema: { type: string, format: binary }
+  /config/{kind}:
+    parameters:
+      - { name: kind, in: path, required: true, schema: { $ref: '#/components/schemas/ConfigKind' } }
+    get:
+      summary: Lister les éléments d'un module de configuration
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ConfigItem' }
+        '404': { description: Type de configuration inconnu (unknown_kind) }
+    post:
+      summary: Créer un élément de configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfigRequest' }
+      responses:
+        '201':
+          description: Créé
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigItem' }
+        '400': { description: name requis / corps JSON invalide }
+        '403': { description: Rôle en lecture seule }
+        '404': { description: Type de configuration inconnu (unknown_kind) }
+        '409': { description: Un élément de ce nom existe déjà }
+  /config/{kind}/{id}:
+    parameters:
+      - { name: kind, in: path, required: true, schema: { $ref: '#/components/schemas/ConfigKind' } }
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      summary: Modifier un élément de configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfigRequest' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ConfigItem' }
+        '403': { description: Rôle en lecture seule }
+        '404': { description: Élément introuvable }
+    delete:
+      summary: Supprimer un élément de configuration
+      responses:
+        '204': { description: Supprimé }
+        '403': { description: Rôle en lecture seule }
+        '404': { description: Élément introuvable }
+  /audit:
+    get:
+      summary: Journal d'audit immuable
+      parameters: [{ name: limit, in: query, required: false, schema: { type: integer, default: 100 } }]
+      responses: { '200': { description: OK } }
+  /ws:
+    get:
+      summary: Flux temps réel des changements d'état (WebSocket)
+      description: >
+        Établit une connexion WebSocket (Upgrade). Le jeton se passe en paramètre de requête
+        car un navigateur ne peut pas poser d'en-tête sur un WebSocket. Limitation connue :
+        le jeton n'est vérifié que s'il est fourni.
+      security: []
+      parameters: [{ name: token, in: query, required: false, schema: { type: string } }]
+      responses:
+        '101': { description: Protocole commuté (WebSocket) }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    TunnelRequest:
+      type: object
+      required: [name, gateway_id, type, ike_version, local, remote, auth, proposals]
+      properties:
+        name: { type: string, example: paris-dakar }
+        gateway_id: { type: string, example: gw-paris }
+        type: { type: string, enum: [site-to-site, road-warrior, host-to-host] }
+        ike_version: { type: integer, enum: [1, 2], example: 2 }
+        local:
+          type: object
+          properties:
+            addr: { type: string, example: 203.0.113.10 }
+            subnets: { type: array, items: { type: string }, example: ["10.1.0.0/16"] }
+        remote:
+          type: object
+          properties:
+            addr: { type: string, example: 198.51.100.20 }
+            subnets: { type: array, items: { type: string }, example: ["10.2.0.0/16"] }
+        auth:
+          type: object
+          properties:
+            method: { type: string, enum: [psk, cert, eap] }
+            secret_ref: { type: string }
+        proposals:
+          type: object
+          properties:
+            ike: { type: array, items: { type: string }, example: ["aes256-sha256-modp2048"] }
+            esp: { type: array, items: { type: string }, example: ["aes256gcm16"] }
+        pfs: { type: boolean, example: true }
+    TunnelResponse:
+      type: object
+      properties:
+        id: { type: string, example: tnl-abc123 }
+        name: { type: string }
+        status: { type: string, example: installing }
+        security_score: { type: integer, example: 82 }
+        warnings: { type: array, items: { type: string } }
+        config_version: { type: integer, example: 12 }
+    Certificate:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, example: gw-paris }
+        cn: { type: string, example: gw-paris }
+        kind: { type: string, enum: [server, client] }
+        serial: { type: string }
+        status: { type: string, enum: [valid, revoked] }
+        not_before: { type: string, example: "2026-01-01T00:00:00Z" }
+        not_after: { type: string, example: "2027-01-01T00:00:00Z" }
+    ConfigKind:
+      type: string
+      description: Module de configuration ciblé par le CRUD générique.
+      enum: [pool, radius, policy, authority, vpnuser, alert, daemon]
+    ConfigRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, example: pool-rw }
+        data:
+          type: object
+          description: Charge utile libre (JSON), propre à chaque module.
+          additionalProperties: true
+          example: { range: "10.9.0.0/24", dns: "10.1.0.53" }
+    ConfigItem:
+      type: object
+      properties:
+        id: { type: string }
+        kind: { $ref: '#/components/schemas/ConfigKind' }
+        name: { type: string }
+        data:
+          type: object
+          additionalProperties: true
+    Error:
+      type: object
+      properties:
+        error: { type: string, example: validation_failed }
+        message: { type: string }
+        details:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              issue: { type: string }
+        correlation_id: { type: string }

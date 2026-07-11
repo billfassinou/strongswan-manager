@@ -1,0 +1,93 @@
+name: Release
+
+# Sur un tag `v*`, produit des binaires autonomes et les attache à la Release.
+# Le binaire embarque la SPA React (`//go:embed all:dist`) : il faut donc builder
+# le front AVANT le `go build`, sinon la compilation échoue.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux,  goarch: amd64 }
+          - { goos: linux,  goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/web/package-lock.json
+
+      - name: Build the embedded SPA
+        working-directory: backend/web
+        run: npm ci && npm run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+
+      - name: Build binary
+        working-directory: backend
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'   # toutes les dépendances sont en Go pur → binaire statique
+        run: |
+          NAME="strongswan-manager_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
+          mkdir -p "dist/$NAME"
+          go build -trimpath -ldflags "-s -w" -o "dist/$NAME/strongswan-manager" ./cmd/server
+          cp ../README.md ../LICENSE "dist/$NAME/"
+          tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: backend/dist/*.tar.gz
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes "Binaire autonome : il contient l'API **et** l'interface web. Il lui faut un PostgreSQL joignable (\`DATABASE_URL\`).
+
+          \`\`\`bash
+          tar xzf strongswan-manager_${GITHUB_REF_NAME}_linux_amd64.tar.gz
+          cd strongswan-manager_${GITHUB_REF_NAME}_linux_amd64
+          DATABASE_URL='postgres://…' JWT_SECRET=\"\$(openssl rand -hex 32)\" ./strongswan-manager
+          \`\`\`
+
+          Vérifiez l'archive avec \`sha256sum -c SHA256SUMS\`.
+          Documentation : https://billfassinou.github.io/strongswan-manager/docs/"

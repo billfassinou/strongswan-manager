@@ -1,0 +1,25 @@
+# Les périmètres backend/ et backend/web/ ont déjà leur propre .gitignore
+# (binaires, .env, node_modules, dist). Ici : uniquement le bruit OS / éditeur / bureautique.
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows / Linux
+Thumbs.db
+Desktop.ini
+*~
+
+# Verrous et sauvegardes bureautiques (Word laisse des ~$*.docx en éditant)
+~$*
+*.tmp
+
+# Éditeurs
+.idea/
+.vscode/
+*.swp
+
+# Matériel de travail privé — conservé en local, jamais publié
+spec/

@@ -1,0 +1,7 @@
+# StrongSwan Manager — https://billfassinou.github.io/strongswan-manager/
+# Site public : tout est crawlable.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://billfassinou.github.io/strongswan-manager/sitemap.xml
