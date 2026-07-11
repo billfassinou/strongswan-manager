@@ -8,7 +8,7 @@ The whole server configuration comes from the environment. The default values ar
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HTTP_ADDR` | `:8080` | Listen address and port of the HTTP server. |
+| `HTTP_ADDR` | `:7926` | Listen address and port of the HTTP server. |
 | `DATABASE_URL` | `postgres://swan:swan@postgres:5432/swan?sslmode=disable` | PostgreSQL connection string. Migrations are applied automatically at startup. |
 | `JWT_SECRET` | `dev-insecure-change-me` | **Must be changed.** Signing secret for authentication tokens (HS256). |
 | `JWT_TTL` | `1h` | Token lifetime. Accepts a Go duration (`30m`, `2h`) or an integer (seconds). |
@@ -17,7 +17,7 @@ The whole server configuration comes from the environment. The default values ar
 | `VICI_ENDPOINTS` | *(empty)* | Gateways to drive, in the form `name=endpoint`, comma-separated. **If empty: demo mode** (mock adapter + `gw-local` gateway). |
 | `POLL_INTERVAL` | `3s` | VICI polling period (SA state, gateway version). Increase it on a large estate. |
 | `CORS_ORIGINS` | `*` | Origins allowed for the API. Should be restricted in production. |
-| `CRL_URL` | *(empty)* | Public URL of the CRL, **embedded in the issued certificates** (CRL Distribution Point). E.g. `http://my-server:8080/crl.der`. Must be set **before** issuing any certificate. |
+| `CRL_URL` | *(empty)* | Public URL of the CRL, **embedded in the issued certificates** (CRL Distribution Point). E.g. `http://my-server:7926/crl.der`. Must be set **before** issuing any certificate. |
 | `CRL_VALIDITY` | `24h` | Validity window (`nextUpdate`) of the generated CRLs: it determines how often the gateways re-download the list. |
 
 ---
@@ -40,7 +40,7 @@ Gateways are registered **at startup**. See [Connecting real gateways](14-connec
 ## Recommended production configuration
 
 ```bash
-HTTP_ADDR=":8080"
+HTTP_ADDR=":7926"
 DATABASE_URL="postgres://user:motdepasse@db:5432/swan?sslmode=require"
 JWT_SECRET="<32+ random bytes>"
 JWT_TTL="30m"

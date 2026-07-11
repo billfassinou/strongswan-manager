@@ -23,7 +23,7 @@ A rollback therefore never erases history: it **adds** a version. The timeline s
 A tunnel's history is available through the API:
 
 ```bash
-curl -s http://localhost:8080/api/v1/tunnels/<ID>/versions \
+curl -s http://localhost:7926/api/v1/tunnels/<ID>/versions \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 
@@ -36,7 +36,7 @@ Each entry carries its number (`n`), its message (`création`, `mise à jour`, `
 ## Rolling back to an earlier version
 
 ```bash
-curl -s -X POST http://localhost:8080/api/v1/tunnels/<ID>/rollback \
+curl -s -X POST http://localhost:7926/api/v1/tunnels/<ID>/rollback \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"version": 1}'

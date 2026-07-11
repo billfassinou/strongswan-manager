@@ -74,24 +74,24 @@ This is the **normal behaviour of charon's CRL cache**.
 - Does the certificate actually contain a CDP? It only has one **if `CRL_URL` was set at issuance time**. If not: reissue the certificate.
 - Can the gateway reach the URL?
   ```bash
-  docker compose exec strongswan-a curl -s -o /dev/null -w '%{http_code}\n' http://backend:8080/crl.der
+  docker compose exec strongswan-a curl -s -o /dev/null -w '%{http_code}\n' http://backend:7926/crl.der
   ```
 - Does the CRL actually list the certificate?
   ```bash
-  curl -s http://localhost:8080/crl.der | openssl crl -inform DER -noout -text | grep -A2 Revoked
+  curl -s http://localhost:7926/crl.der | openssl crl -inform DER -noout -text | grep -A2 Revoked
   ```
 - Lower **`CRL_VALIDITY`** to speed up cache renewal (the lab uses `30s`).
 
 ---
 
-## Port 8080 (or 5432) is already in use
+## Port 7926 (or 5432) is already in use
 
-`Bind for 0.0.0.0:8080 failed: port is already allocated`
+`Bind for 0.0.0.0:7926 failed: port is already allocated`
 
 Another service is holding the port. Either stop it, or change the published port in `docker-compose.yml`:
 
 ```yaml
-ports: ["9090:8080"]
+ports: ["9090:7926"]
 ```
 
 (PostgreSQL exposes **no port** on the host: the server reaches it over Docker's internal network.)

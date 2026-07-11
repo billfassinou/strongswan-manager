@@ -17,7 +17,7 @@ func TestLoadDefaults(t *testing.T) {
 		t.Setenv(k, "")
 	}
 	c := Load()
-	if c.HTTPAddr != ":8080" {
+	if c.HTTPAddr != ":7926" {
 		t.Fatalf("HTTPAddr défaut = %q", c.HTTPAddr)
 	}
 	if c.JWTTTL != time.Hour {

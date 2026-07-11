@@ -20,5 +20,5 @@ FROM alpine:3.20
 RUN adduser -D -u 10001 app
 COPY --from=build /out/server /usr/local/bin/server
 USER app
-EXPOSE 8080
+EXPOSE 7926
 ENTRYPOINT ["/usr/local/bin/server"]

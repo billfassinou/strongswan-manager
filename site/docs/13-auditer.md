@@ -46,7 +46,7 @@ La page affiche les 100 dernières entrées : horodatage, action, cible.
 ### Par l'API (pour un export, un SIEM…)
 
 ```bash
-curl -s "http://localhost:8080/api/v1/audit?limit=500" \
+curl -s "http://localhost:7926/api/v1/audit?limit=500" \
   -H "Authorization: Bearer $TOKEN" | jq
 ```
 

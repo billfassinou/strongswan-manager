@@ -241,7 +241,7 @@ paths:
                 type: object
                 properties:
                   crl_number: { type: integer, example: 3 }
-                  distribution_point: { type: string, example: http://vpn.example.org:8080/crl.der }
+                  distribution_point: { type: string, example: http://vpn.example.org:7926/crl.der }
         '403': { description: Rôle en lecture seule }
   /crl.der:
     servers:

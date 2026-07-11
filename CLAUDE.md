@@ -185,7 +185,7 @@ VICI adapter and poller behind interfaces so they can be externalized later.
   `web/node_modules` and `web/dist` are gitignored and `.dockerignore`d.
 - The SPA talks to the API via `src/api.ts` (fetch + Bearer JWT in localStorage), `src/ws.ts`
   (WebSocket `/api/v1/ws?token=` for live tunnel status), and hides write actions when
-  `/me.can_write` is false. Dev-only: `cd web && npm run dev` proxies `/api` to `:8080`.
+  `/me.can_write` is false. Dev-only: `cd web && npm run dev` proxies `/api` to `:7926`.
 - Keep the SPA's design tokens (`web/src/styles.css`) consistent with the mock `spec/app.html`.
 - **Generic config modules**: Pools, RADIUS, Policies, Authorities, VPN users, alert rules and
   daemon settings are all backed by one **generic CRUD** over a `config_items` table (`kind` +

@@ -38,7 +38,7 @@ cat sauvegarde.sql | docker compose exec -T postgres psql -U swan swan
 
 ### Peut-on servir l'application en HTTPS ?
 
-L'application sert du **HTTP en clair** sur le port 8080. Placez-la derrière un reverse proxy TLS (Nginx, Traefik, Caddy). Pensez à relayer les **WebSockets**.
+L'application sert du **HTTP en clair** sur le port 7926. Placez-la derrière un reverse proxy TLS (Nginx, Traefik, Caddy). Pensez à relayer les **WebSockets**.
 
 ---
 

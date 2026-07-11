@@ -69,7 +69,7 @@ StrongSwan **n'a pas de commande pour « pousser » une CRL**. Le mécanisme sta
 Cette URL se configure avec la variable **`CRL_URL`**, par exemple :
 
 ```
-CRL_URL=http://mon-serveur:8080/crl.der
+CRL_URL=http://mon-serveur:7926/crl.der
 ```
 
 L'endpoint **`/crl.der`** est **public** (sans authentification) : c'est normal, une CRL est un objet public, et les passerelles doivent pouvoir la lire sans jeton.
@@ -97,7 +97,7 @@ Voir [Dépannage](15-depannage.md) si un certificat révoqué reste accepté.
 ## Vérifier soi-même la CRL
 
 ```bash
-curl -s http://localhost:8080/crl.der | openssl crl -inform DER -noout -text
+curl -s http://localhost:7926/crl.der | openssl crl -inform DER -noout -text
 ```
 
 Vous devez y voir le numéro de CRL et les numéros de série révoqués.

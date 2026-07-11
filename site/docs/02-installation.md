@@ -3,7 +3,7 @@
 ## Prérequis
 
 - **Docker** et **Docker Compose** (c'est tout).
-- Le port **8080** libre sur votre machine.
+- Le port **7926** libre sur votre machine.
 
 Rien d'autre n'est nécessaire : PostgreSQL, les migrations de base et le front sont pris en charge automatiquement.
 
@@ -16,12 +16,12 @@ Rien d'autre n'est nécessaire : PostgreSQL, les migrations de base et le front 
 ```bash
 git clone <dépôt> && cd strongswan/backend
 make run
-# → ouvrez http://localhost:8080
+# → ouvrez http://localhost:7926
 ```
 
 `make run` construit l'image, démarre PostgreSQL, applique les migrations, crée les comptes de démonstration, génère l'autorité de certification interne, puis lance l'application.
 
-**Ce que vous devez voir** : au bout de quelques secondes, `http://localhost:8080` affiche l'écran de connexion.
+**Ce que vous devez voir** : au bout de quelques secondes, `http://localhost:7926` affiche l'écran de connexion.
 
 ---
 

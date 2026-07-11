@@ -97,7 +97,7 @@ Branchez-y Prometheus, puis Grafana ou Alertmanager :
 scrape_configs:
   - job_name: strongswan-manager
     static_configs:
-      - targets: ['mon-serveur:8080']
+      - targets: ['mon-serveur:7926']
 ```
 
 C'est aujourd'hui **le moyen d'être alerté** (les canaux de notification internes ne sont pas encore actifs — voir [Modules de configuration](11-modules-configuration.md)).

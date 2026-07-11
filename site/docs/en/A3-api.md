@@ -11,7 +11,7 @@ Everything the interface does is available through the API. This is the way to *
 ## Authenticating
 
 ```bash
-TOKEN=$(curl -s http://localhost:8080/api/v1/auth/login \
+TOKEN=$(curl -s http://localhost:7926/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"identity":"admin","password":"admin1234"}' | jq -r .token)
 ```
@@ -19,7 +19,7 @@ TOKEN=$(curl -s http://localhost:8080/api/v1/auth/login \
 Then, on every call:
 
 ```bash
-curl -s http://localhost:8080/api/v1/me -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:7926/api/v1/me -H "Authorization: Bearer $TOKEN"
 ```
 
 The token expires after `JWT_TTL` (1 h by default).
@@ -95,7 +95,7 @@ See [Roles & permissions](A1-roles-et-permissions.md).
 ## Creating a tunnel
 
 ```bash
-curl -s http://localhost:8080/api/v1/tunnels \
+curl -s http://localhost:7926/api/v1/tunnels \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -163,17 +163,17 @@ A single schema for all of them:
 
 ```bash
 # créer un pool
-curl -s http://localhost:8080/api/v1/config/pool \
+curl -s http://localhost:7926/api/v1/config/pool \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"pool-rw","data":{"range":"10.9.0.0/24","source":"Interne","dns":"10.1.0.53"}}'
 
 # lister
-curl -s http://localhost:8080/api/v1/config/pool -H "Authorization: Bearer $TOKEN"
+curl -s http://localhost:7926/api/v1/config/pool -H "Authorization: Bearer $TOKEN"
 
 # modifier / supprimer
-curl -s -X PUT    http://localhost:8080/api/v1/config/pool/<ID> -H "Authorization: Bearer $TOKEN" \
+curl -s -X PUT    http://localhost:7926/api/v1/config/pool/<ID> -H "Authorization: Bearer $TOKEN" \
      -H 'Content-Type: application/json' -d '{"name":"pool-rw","data":{"range":"10.9.0.0/22"}}'
-curl -s -X DELETE http://localhost:8080/api/v1/config/pool/<ID> -H "Authorization: Bearer $TOKEN"
+curl -s -X DELETE http://localhost:7926/api/v1/config/pool/<ID> -H "Authorization: Bearer $TOKEN"
 ```
 
 The `data` field is free-form (JSON): each module puts its own fields in it.
@@ -183,7 +183,7 @@ The `data` field is free-form (JSON): each module puts its own fields in it.
 ## The real-time stream (WebSocket)
 
 ```
-ws://localhost:8080/api/v1/ws?token=<jeton>
+ws://localhost:7926/api/v1/ws?token=<jeton>
 ```
 
 Every state change emits a message:
@@ -199,7 +199,7 @@ Every state change emits a message:
 ## Complete example: a tunnel end to end
 
 ```bash
-B=http://localhost:8080
+B=http://localhost:7926
 TOKEN=$(curl -s $B/api/v1/auth/login -H 'Content-Type: application/json' \
   -d '{"identity":"admin","password":"admin1234"}' | jq -r .token)
 GW=$(curl -s $B/api/v1/gateways -H "Authorization: Bearer $TOKEN" | jq -r '.items[0].id')

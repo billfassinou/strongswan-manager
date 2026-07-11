@@ -97,7 +97,7 @@ Point Prometheus at it, then Grafana or Alertmanager:
 scrape_configs:
   - job_name: strongswan-manager
     static_configs:
-      - targets: ['mon-serveur:8080']
+      - targets: ['mon-serveur:7926']
 ```
 
 Today this is **the way to get alerted** (the built-in notification channels are not active yet — see [Configuration modules](11-modules-configuration.md)).

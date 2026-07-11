@@ -8,8 +8,8 @@ export default defineConfig({
   build: { outDir: "dist", emptyOutDir: true },
   server: {
     proxy: {
-      "/api": { target: "http://localhost:8080", changeOrigin: true, ws: true },
-      "/healthz": "http://localhost:8080",
+      "/api": { target: "http://localhost:7926", changeOrigin: true, ws: true },
+      "/healthz": "http://localhost:7926",
     },
   },
 });

@@ -16,7 +16,7 @@ import (
 
 // Config regroupe tous les paramètres d'exécution du serveur.
 type Config struct {
-	HTTPAddr    string        // adresse d'écoute HTTP (ex. ":8080")
+	HTTPAddr    string        // adresse d'écoute HTTP (ex. ":7926")
 	DatabaseURL string        // DSN PostgreSQL
 	JWTSecret   string        // secret de signature des JWT
 	JWTTTL      time.Duration // durée de vie des jetons
@@ -33,7 +33,7 @@ type Config struct {
 // valeurs par défaut adaptées au lab dockerisé.
 func Load() Config {
 	return Config{
-		HTTPAddr:          env("HTTP_ADDR", ":8080"),
+		HTTPAddr:          env("HTTP_ADDR", ":7926"),
 		DatabaseURL:       env("DATABASE_URL", "postgres://swan:swan@postgres:5432/swan?sslmode=disable"),
 		JWTSecret:         env("JWT_SECRET", "dev-insecure-change-me"),
 		JWTTTL:            envDuration("JWT_TTL", time.Hour),

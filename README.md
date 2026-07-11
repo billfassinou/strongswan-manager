@@ -25,7 +25,7 @@ fichier de configuration.
 git clone https://github.com/billfassinou/strongswan-manager.git
 cd strongswan-manager/backend
 make run
-# → http://localhost:8080   —   connexion : admin / admin1234
+# → http://localhost:7926   —   connexion : admin / admin1234
 ```
 
 Docker suffit : la base, les migrations, la PKI et les comptes de démonstration sont créés au
@@ -45,8 +45,8 @@ Chaque [release](https://github.com/billfassinou/strongswan-manager/releases/lat
 linux/arm64, darwin/amd64 et darwin/arm64.
 
 ```bash
-tar xzf strongswan-manager_v0.1.0_linux_amd64.tar.gz
-cd strongswan-manager_v0.1.0_linux_amd64
+tar xzf strongswan-manager_v0.1.1_linux_amd64.tar.gz
+cd strongswan-manager_v0.1.1_linux_amd64
 sha256sum -c ../SHA256SUMS          # vérifiez l'archive
 DATABASE_URL='postgres://…' JWT_SECRET="$(openssl rand -hex 32)" ./strongswan-manager
 ```
@@ -133,7 +133,7 @@ configuration files.
 ```bash
 git clone https://github.com/billfassinou/strongswan-manager.git
 cd strongswan-manager/backend && make run
-# → http://localhost:8080   —   sign in: admin / admin1234
+# → http://localhost:7926   —   sign in: admin / admin1234
 ```
 
 Prebuilt standalone binaries (API + web UI in one file) are attached to every
