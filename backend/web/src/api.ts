@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bill Fassinou
+//
+// StrongSwan Manager — coeur Community, sous licence AGPL-3.0.
+// Les modules premium sont distribues separement sous licence commerciale.
+
 // Client HTTP minimal vers l'API backend (même origine). Le JWT est conservé en mémoire
 // + localStorage pour survivre à un rechargement.
 

@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bill Fassinou
+//
+// StrongSwan Manager — coeur Community, sous licence AGPL-3.0.
+// Les modules premium sont distribues separement sous licence commerciale.
+
 // Package poller sonde périodiquement l'état des SA via VICI et propage les
 // changements vers la base, les métriques et les clients WebSocket.
 package poller

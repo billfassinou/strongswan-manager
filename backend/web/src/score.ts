@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bill Fassinou
+//
+// StrongSwan Manager — coeur Community, sous licence AGPL-3.0.
+// Les modules premium sont distribues separement sous licence commerciale.
+
 // Port TypeScript du score de sécurité (aligné sur le backend domain.ScoreTunnel
 // et la maquette app.html), pour un retour immédiat dans l'éditeur.
 

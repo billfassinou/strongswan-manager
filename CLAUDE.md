@@ -12,7 +12,19 @@ holds the **specification**, an interactive **front-end mock**, and now a **Go b
 
 Repo layout (what is **published** at github.com/billfassinou/strongswan-manager):
 `backend/` (the app) · `site/` (the published website, docs included) · `.github/workflows/` ·
-`LICENSE` (Apache-2.0).
+`LICENSE` (AGPL-3.0) · `CLA.md` + `CONTRIBUTING.md`.
+
+## Open-core: the licence boundary is a repo boundary
+
+The core (this repo) is **AGPL-3.0**; the Premium/Enterprise modules (compliance, advanced
+alerting, AI, multi-tenant, SSO) are **commercial and live in a separate private repo** — never
+add them here. Two consequences to respect:
+
+- **Every source file carries an SPDX header** (`// SPDX-License-Identifier: AGPL-3.0-or-later`).
+  New files must too. In Go files with a `//go:build` tag, the header goes **after** the build
+  directive (otherwise the tag stops applying).
+- **Contributions require a signed-off commit** (the CLA, `CLA.md`): without it the project
+  could not relicense a contribution into the commercial edition. Do not merge unsigned work.
 
 ## `spec/` — local only, NEVER commit it
 

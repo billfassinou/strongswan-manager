@@ -6,7 +6,7 @@
 Créez, pilotez et supervisez vos tunnels IPsec depuis une interface — plus jamais depuis un
 fichier de configuration.
 
-[![Licence](https://img.shields.io/badge/licence-Apache--2.0-blue.svg)](LICENSE)
+[![Licence](https://img.shields.io/badge/licence-AGPL--3.0-blue.svg)](LICENSE)
 [![Site](https://img.shields.io/badge/site-en%20ligne-brightgreen.svg)](https://billfassinou.github.io/strongswan-manager/)
 [![Documentation](https://img.shields.io/badge/documentation-FR%20%7C%20EN-blueviolet.svg)](https://billfassinou.github.io/strongswan-manager/docs/)
 
@@ -103,9 +103,21 @@ make lab-up / lab-down  # lab avec 2 vraies passerelles strongSwan
 Les **tests unitaires** vivent à côté du code qu'ils testent (convention Go) ; les **tests
 d'intégration** sont dans [`backend/test/`](backend/test/).
 
-## Licence
+## Licence & modèle open-core
 
-[Apache-2.0](LICENSE).
+Ce dépôt contient l'**édition Community**, sous **[AGPL-3.0](LICENSE)**. Elle est complète et
+suffit à administrer StrongSwan au quotidien : rien n'y est bridé, ni limité dans le temps, ni
+plafonné en nombre de tunnels.
+
+Concrètement, l'AGPL vous garantit le droit d'utiliser, de modifier et de redistribuer ce code.
+En contrepartie, **si vous exploitez une version modifiée comme service en réseau, vous devez en
+publier les sources**. C'est ce qui empêche que le cœur soit refermé par un tiers.
+
+Les modules **Premium** et **Enterprise** (conformité, alerting avancé, IA, multi-tenant, SSO)
+sont distribués **séparément, sous licence commerciale** — ils ne sont pas dans ce dépôt.
+
+**Contribuer** : lisez [CONTRIBUTING.md](CONTRIBUTING.md). La signature du [CLA](CLA.md) est
+requise (`git commit -s`) — c'est ce qui permet au projet de maintenir ce double modèle.
 
 ---
 

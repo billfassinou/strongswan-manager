@@ -1,5 +1,11 @@
 //go:build integration
 
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bill Fassinou
+//
+// StrongSwan Manager — coeur Community, sous licence AGPL-3.0.
+// Les modules premium sont distribues separement sous licence commerciale.
+
 // Package test regroupe les tests d'intégration (boîte noire) du backend : ils
 // n'utilisent que l'API exportée des paquets et s'exécutent contre de vraies
 // dépendances (PostgreSQL).

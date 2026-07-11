@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bill Fassinou
+//
+// StrongSwan Manager — coeur Community, sous licence AGPL-3.0.
+// Les modules premium sont distribues separement sous licence commerciale.
+
 // Package vici abstrait la communication avec StrongSwan via l'interface VICI.
 // L'interface Adapter permet deux implémentations : le vrai client govici et un
 // mock en mémoire pour les tests unitaires — et facilite l'externalisation

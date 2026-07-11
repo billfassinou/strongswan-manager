@@ -1,3 +1,9 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Bill Fassinou
+//
+// StrongSwan Manager — coeur Community, sous licence AGPL-3.0.
+// Les modules premium sont distribues separement sous licence commerciale.
+
 // Package web embarque le build de la SPA React (dist/) dans le binaire et l'expose
 // comme handler HTTP, avec repli SPA (toute route inconnue -> index.html).
 package web
