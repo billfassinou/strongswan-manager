@@ -306,7 +306,7 @@ cmd_upgrade() {
     else tar -xzf "$bundle" -C "$tmp" || die "bundle illisible : $bundle"
          new="$(find "$tmp" -name strongswan-manager -type f | head -1)"
     fi
-    [ -n "$new" ] && [ -f "$new" ] || die "binaire introuvable dans le bundle."
+    if [ -z "$new" ] || [ ! -f "$new" ]; then die "binaire introuvable dans le bundle."; fi
   else
     command -v curl >/dev/null 2>&1 || die "curl est requis (ou utilisez --bundle)."
     local arch base name
@@ -325,8 +325,9 @@ cmd_upgrade() {
     local expected actual
     expected="$(awk -v f="$name.tar.gz" '$2 == f || $2 == "*"f {print $1}' "$tmp/SHA256SUMS" | head -1)"
     actual="$(sha256sum "$tmp/bundle.tar.gz" | cut -d' ' -f1)"
-    [ -n "$expected" ] && [ "$expected" = "$actual" ] \
-      || die "SOMME DE CONTRÔLE INVALIDE — mise à jour interrompue."
+    if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+      die "SOMME DE CONTRÔLE INVALIDE — mise à jour interrompue."
+    fi
     ok "somme de contrôle vérifiée"
     tar -xzf "$tmp/bundle.tar.gz" -C "$tmp"
     new="$tmp/$name/strongswan-manager"
