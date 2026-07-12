@@ -137,7 +137,9 @@ jobs:
           set -euo pipefail
           ARCHIVE="$(sudo swanmgrctl backup | tail -1)"
           sudo test -f "$ARCHIVE"
-          yes restaurer | sudo swanmgrctl restore "$ARCHIVE"
+          # printf (une seule ligne) plutôt que `yes` : `yes` continue d'écrire après que
+          # restore a lu sa confirmation → « Broken pipe » que set -o pipefail ferait échouer.
+          printf 'restaurer\n' | sudo swanmgrctl restore "$ARCHIVE"
           curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
 
       - name: Réinstallation idempotente (secrets conservés)
