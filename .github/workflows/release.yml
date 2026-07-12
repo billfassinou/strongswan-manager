@@ -115,6 +115,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
+        # buildx publie sinon un artefact « .dockerbuild » que le job release, en
+        # téléchargeant TOUS les artefacts, n'arrive pas à récupérer (échec du download).
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: backend
           platforms: linux/amd64,linux/arm64
