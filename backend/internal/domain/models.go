@@ -56,6 +56,10 @@ type User struct {
 	Role     string
 	Enabled  bool
 	PassHash string
+	// MustChangePassword est vrai tant que le compte utilise le mot de passe posé au
+	// premier démarrage (SEED_ADMIN_PASSWORD). La console bloque alors tout usage
+	// jusqu'au changement.
+	MustChangePassword bool
 }
 
 // Gateway est une instance StrongSwan gérée.
@@ -194,8 +198,8 @@ type ConfigItem struct {
 
 // SAState est l'état temps réel d'une SA remonté par VICI (list-sas).
 type SAState struct {
-	Name    string
-	Status  string // up / negotiating / down
-	BytesIn uint64
+	Name     string
+	Status   string // up / negotiating / down
+	BytesIn  uint64
 	BytesOut uint64
 }

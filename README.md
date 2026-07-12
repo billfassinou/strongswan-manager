@@ -19,7 +19,28 @@ fichier de configuration.
 
 ---
 
-## Démarrer en trois commandes
+## Installer
+
+Sur un serveur Debian/Ubuntu ou RHEL/AlmaLinux/Rocky (systemd, amd64 ou arm64) :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/billfassinou/strongswan-manager/main/deploy/install.sh | sudo bash
+```
+
+Le script récapitule ce qu'il va modifier avant d'agir. Il installe PostgreSQL et strongSwan
+si besoin, génère ses secrets, ouvre le socket VICI au service (qui ne tourne donc **pas** en
+root), pose l'unité systemd, et vérifie que la console répond avant de rendre la main. Il vous
+donne alors l'URL et le mot de passe — que la console vous fera changer à la connexion.
+
+Ensuite : `swanmgrctl doctor`, `backup`, `restore`, `upgrade` (avec retour arrière automatique).
+
+**Autres chemins** — paquets `.deb` / `.rpm` (mises à jour par `apt`/`dnf`), image
+`ghcr.io/billfassinou/strongswan-manager`, ou **installation hors ligne** : les archives Linux
+des [releases](https://github.com/billfassinou/strongswan-manager/releases/latest) sont des
+bundles autonomes, `sudo ./install.sh --skip-deps` n'accède à aucun réseau. Voir la
+**[documentation d'installation](https://billfassinou.github.io/strongswan-manager/docs/#/02-installation)**.
+
+## Essayer en trois commandes
 
 ```bash
 git clone https://github.com/billfassinou/strongswan-manager.git
@@ -31,7 +52,8 @@ make run
 
 Docker suffit : la base, les migrations, la PKI et les comptes de démonstration sont créés au
 premier démarrage. Sans passerelle réelle configurée, l'application démarre en **mode démo**
-(passerelle simulée) : toute l'interface est explorable immédiatement.
+(passerelle simulée) : toute l'interface est explorable immédiatement, mais **aucun trafic
+n'est réellement chiffré**.
 
 Pour de **vrais tunnels**, entre deux démons strongSwan dockerisés :
 
@@ -42,14 +64,17 @@ make lab-up      # + 2 passerelles strongSwan réelles
 ## Télécharger
 
 Chaque [release](https://github.com/billfassinou/strongswan-manager/releases/latest) publie un
-**binaire autonome** — il contient l'API **et** l'interface web — pour linux/amd64,
-linux/arm64, darwin/amd64 et darwin/arm64.
+**bundle autonome** — le binaire contient l'API **et** l'interface web, et l'archive y ajoute
+l'installeur et `swanmgrctl` — pour linux/amd64, linux/arm64, darwin/amd64 et darwin/arm64,
+plus des paquets `.deb`/`.rpm`, un SBOM et une signature `cosign`.
 
 ```bash
 tar xzf strongswan-manager_v0.1.1_linux_amd64.tar.gz
 cd strongswan-manager_v0.1.1_linux_amd64
 sha256sum -c ../SHA256SUMS          # vérifiez l'archive
-DATABASE_URL='postgres://…' JWT_SECRET="$(openssl rand -hex 32)" ./strongswan-manager
+sudo ./install.sh                   # …ou lancez le binaire vous-même :
+DATABASE_URL='postgres://…' JWT_SECRET="$(openssl rand -hex 32)" \
+  SECRETS_KEY="$(openssl rand -hex 32)" ./strongswan-manager
 ```
 
 Seul prérequis : un **PostgreSQL** joignable. Voir les
@@ -131,6 +156,14 @@ creation, built-in PKI, real-time monitoring, an automatic security score and a 
 audit log — all driven through StrongSwan's official **VICI** API, never by writing
 configuration files.
 
+Install it on a systemd server (Debian/Ubuntu, RHEL/AlmaLinux/Rocky):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/billfassinou/strongswan-manager/main/deploy/install.sh | sudo bash
+```
+
+Or just try it, with Docker:
+
 ```bash
 git clone https://github.com/billfassinou/strongswan-manager.git
 cd strongswan-manager/backend && make run
@@ -138,8 +171,11 @@ cd strongswan-manager/backend && make run
 #   (self-signed certificate: the browser warns on first access — this is expected)
 ```
 
-Prebuilt standalone binaries (API + web UI in one file) are attached to every
-[release](https://github.com/billfassinou/strongswan-manager/releases/latest).
+Every [release](https://github.com/billfassinou/strongswan-manager/releases/latest) ships
+**self-contained bundles** (binary + installer + `swanmgrctl`), `.deb`/`.rpm` packages and a
+container image. The Linux bundles install **with no network access at all**
+(`sudo ./install.sh --skip-deps`) — air-gapped sites are a first-class path, not an
+afterthought.
 
 → **[Website](https://billfassinou.github.io/strongswan-manager/en/)** ·
 **[Documentation](https://billfassinou.github.io/strongswan-manager/docs/en/)**

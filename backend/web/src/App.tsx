@@ -9,6 +9,7 @@ import { api } from "./api";
 import { useAuth } from "./auth";
 import { NavCtx } from "./nav";
 import { Login } from "./pages/Login";
+import { ChangePassword } from "./pages/ChangePassword";
 import { Dashboard } from "./pages/Dashboard";
 import { Tunnels } from "./pages/Tunnels";
 import { Editor } from "./pages/Editor";
@@ -120,6 +121,9 @@ export function App() {
 
   if (!ready) return <div className="login-wrap">Chargement…</div>;
   if (!me) return <Login />;
+  // Compte encore sur le mot de passe d'installation : l'API elle-même est fermée (403),
+  // la console n'a rien d'autre à afficher.
+  if (me.must_change_password) return <ChangePassword />;
 
   const go = (p: string, a: any = null) => {
     setArg(a);

@@ -19,7 +19,8 @@ type ScoreResult struct {
 
 // ScoreTunnel calcule un score de sécurité [5..100] pour un tunnel.
 // Port fidèle de la fonction scoreTunnel de la maquette front (app.html) :
-//   IKEv1 −42 ; 3DES/DES −28 ; MD5 −18 ; modp1024 −16 ; sans PFS −10 ; sans ML-KEM −6.
+//
+//	IKEv1 −42 ; 3DES/DES −28 ; MD5 −18 ; modp1024 −16 ; sans PFS −10 ; sans ML-KEM −6.
 func ScoreTunnel(t *Tunnel) ScoreResult {
 	s := 100
 	var notes []string

@@ -17,9 +17,9 @@ import (
 // Mock est une implémentation en mémoire de l'Adapter pour les tests unitaires
 // et le développement sans lab (les connexions chargées sont mémorisées).
 type Mock struct {
-	mu     sync.Mutex
-	conns  map[string]map[string]any
-	up     map[string]bool
+	mu      sync.Mutex
+	conns   map[string]map[string]any
+	up      map[string]bool
 	shared  map[string]string // id du secret -> valeur chargée (load-shared)
 	certs   int
 	caCerts int
@@ -64,7 +64,7 @@ func (m *Mock) HasShared(id string) bool {
 	return ok
 }
 
-func (m *Mock) LoadCert(_ context.Context, _ , flag string) error {
+func (m *Mock) LoadCert(_ context.Context, _, flag string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if flag == "ca" {

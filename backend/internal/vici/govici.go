@@ -36,7 +36,8 @@ type Govici struct {
 }
 
 // New construit un adaptateur à partir d'un endpoint :
-//   "unix:/var/run/charon.vici" (défaut) ou "tcp:host:port".
+//
+//	"unix:/var/run/charon.vici" (défaut) ou "tcp:host:port".
 func New(endpoint string) (*Govici, error) {
 	g := &Govici{}
 	switch {
@@ -184,9 +185,13 @@ func (g *Govici) ListSAs(ctx context.Context) ([]domain.SAState, error) {
 	return out, nil
 }
 
-func (g *Govici) Initiate(ctx context.Context, child string) error  { return g.control("initiate", child) }
-func (g *Govici) Terminate(ctx context.Context, child string) error { return g.control("terminate", child) }
-func (g *Govici) Rekey(ctx context.Context, child string) error     { return g.control("rekey", child) }
+func (g *Govici) Initiate(ctx context.Context, child string) error {
+	return g.control("initiate", child)
+}
+func (g *Govici) Terminate(ctx context.Context, child string) error {
+	return g.control("terminate", child)
+}
+func (g *Govici) Rekey(ctx context.Context, child string) error { return g.control("rekey", child) }
 
 func (g *Govici) control(cmd, child string) error {
 	s, err := g.session()

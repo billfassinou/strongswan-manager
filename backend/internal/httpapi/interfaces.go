@@ -19,6 +19,8 @@ import (
 
 type usersStore interface {
 	GetByIdentity(ctx context.Context, identity string) (*domain.User, error)
+	GetByID(ctx context.Context, id string) (*domain.User, error)
+	SetPassword(ctx context.Context, id, passHash string) error
 }
 
 type gatewaysStore interface {

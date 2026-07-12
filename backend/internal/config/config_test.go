@@ -93,3 +93,38 @@ func TestLoadOverrides(t *testing.T) {
 		t.Fatalf("CORSOrigins = %v", c.CORSOrigins)
 	}
 }
+
+func TestValidateRejectsDevSecrets(t *testing.T) {
+	base := func() Config {
+		return Config{JWTSecret: "unsecretbienlong", SecretsKey: "uneclebienlongue"}
+	}
+
+	if err := base().Validate(); err != nil {
+		t.Fatalf("configuration saine refusée : %v", err)
+	}
+
+	c := base()
+	c.JWTSecret = DefaultJWTSecret
+	if err := c.Validate(); err == nil {
+		t.Fatal("JWT_SECRET par défaut accepté : le serveur démarrerait avec un secret public")
+	}
+
+	c = base()
+	c.SecretsKey = DefaultSecretsKey
+	if err := c.Validate(); err == nil {
+		t.Fatal("SECRETS_KEY par défaut acceptée")
+	}
+
+	// Le lab doit continuer à démarrer.
+	c = Config{JWTSecret: DefaultJWTSecret, SecretsKey: DefaultSecretsKey, AllowInsecureDefaults: true}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("ALLOW_INSECURE_DEFAULTS n'a pas levé le blocage : %v", err)
+	}
+}
+
+func TestLoadAllowInsecureDefaults(t *testing.T) {
+	t.Setenv("ALLOW_INSECURE_DEFAULTS", "true")
+	if !Load().AllowInsecureDefaults {
+		t.Fatal("ALLOW_INSECURE_DEFAULTS=true non pris en compte")
+	}
+}

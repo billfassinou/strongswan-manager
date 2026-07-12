@@ -91,10 +91,10 @@ func IssueCert(caCertPEM, caKeyPEM []byte, cn string, sans []string, crlDistribu
 	}
 	now := time.Now().Add(-5 * time.Minute)
 	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: cn},
-		NotBefore:    now,
-		NotAfter:     now.AddDate(1, 0, 0),
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: cn},
+		NotBefore:             now,
+		NotAfter:              now.AddDate(1, 0, 0),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		CRLDistributionPoints: crlDistributionPoints,

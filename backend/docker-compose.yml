@@ -30,7 +30,12 @@ services:
       # docker — sans lui, une passerelle qui appellerait le backend en HTTPS le rejetterait.
       TLS_SANS: "localhost,127.0.0.1,::1,backend"
       DATABASE_URL: "postgres://swan:swan@postgres:5432/swan?sslmode=disable"
+      # Ces secrets sont publics (ils sont dans le dépôt) : le serveur REFUSE de démarrer
+      # avec, sauf aveu explicite. C'est ce que fait ALLOW_INSECURE_DEFAULTS — réservé au
+      # lab. Une installation réelle (deploy/install.sh, paquet, compose de production)
+      # génère les siens et ne pose jamais ce drapeau.
       JWT_SECRET: "dev-insecure-change-me"
+      ALLOW_INSECURE_DEFAULTS: "true"
       SEED_ADMIN_PASSWORD: "admin1234"
       POLL_INTERVAL: "3s"
       # Vide par défaut (adaptateur mock). Le profil lab l'alimente via l'environnement hôte

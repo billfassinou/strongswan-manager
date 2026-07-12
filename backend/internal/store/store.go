@@ -21,13 +21,13 @@ import (
 
 // Store encapsule le pool de connexions et expose les repositories.
 type Store struct {
-	Pool     *pgxpool.Pool
-	Users    *UserRepo
-	Gateways *GatewayRepo
-	Tunnels  *TunnelRepo
-	Versions *VersionRepo
-	Audit    *AuditRepo
-	Secrets  *SecretRepo
+	Pool      *pgxpool.Pool
+	Users     *UserRepo
+	Gateways  *GatewayRepo
+	Tunnels   *TunnelRepo
+	Versions  *VersionRepo
+	Audit     *AuditRepo
+	Secrets   *SecretRepo
 	CA        *CARepo
 	Certs     *CertRepo
 	Config    *ConfigRepo

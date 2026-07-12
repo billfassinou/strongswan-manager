@@ -10,10 +10,11 @@ The whole server configuration comes from the environment. The default values ar
 |---|---|---|
 | `HTTP_ADDR` | `:7926` | Main listen address. **Serves HTTPS** (unless `TLS_ENABLED=false`). |
 | `DATABASE_URL` | `postgres://swan:swan@postgres:5432/swan?sslmode=disable` | PostgreSQL connection string. Migrations are applied automatically at startup. |
-| `JWT_SECRET` | `dev-insecure-change-me` | **Must be changed.** Signing secret for authentication tokens (HS256). |
+| `JWT_SECRET` | `dev-insecure-change-me` | **The server refuses to start** with this value, which is public. Token signing secret (HS256). `openssl rand -hex 32`. |
 | `JWT_TTL` | `1h` | Token lifetime. Accepts a Go duration (`30m`, `2h`) or an integer (seconds). |
-| `SEED_ADMIN_PASSWORD` | `admin1234` | **Must be changed.** Password of the 4 accounts created **on first startup** (`admin`, `operator`, `auditor`, `viewer`). |
-| `SECRETS_KEY` | `dev-insecure-secrets-key-change-me` | **Must be changed, and then never modified again.** Passphrase from which the AES-256-GCM key encrypting the secrets and the PKI private keys is derived. |
+| `SEED_ADMIN_PASSWORD` | `admin1234` | Password of the 4 accounts created **on first startup** (`admin`, `operator`, `auditor`, `viewer`). The console **forces you to change it** at first login: until then, the API answers `403` everywhere else. |
+| `SECRETS_KEY` | `dev-insecure-secrets-key-change-me` | **The server refuses to start** with this value. Passphrase from which the AES-256-GCM key encrypting the secrets, the PKI private keys **and the TLS certificate's key** is derived. Set it before the first start, **and never change it again**. Back it up together with the database — `swanmgrctl backup` archives both at once. |
+| `ALLOW_INSECURE_DEFAULTS` | `false` | Allows starting with the two secrets above left at their default value. **Lab only** (`make run`, `make lab-up`): those values live in the repository, so they are public. |
 | `VICI_ENDPOINTS` | *(empty)* | Gateways to drive, in the form `name=endpoint`, comma-separated. **If empty: demo mode** (mock adapter + `gw-local` gateway). |
 | `POLL_INTERVAL` | `3s` | VICI polling period (SA state, gateway version). Increase it on a large estate. |
 | `CORS_ORIGINS` | `*` | Origins allowed for the API. Should be restricted in production. |

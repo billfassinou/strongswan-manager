@@ -10,10 +10,11 @@ Toute la configuration du serveur passe par l'environnement. Les valeurs par dé
 |---|---|---|
 | `HTTP_ADDR` | `:7926` | Adresse d'écoute principale. **Sert en HTTPS** (sauf si `TLS_ENABLED=false`). |
 | `DATABASE_URL` | `postgres://swan:swan@postgres:5432/swan?sslmode=disable` | Chaîne de connexion PostgreSQL. Les migrations sont appliquées automatiquement au démarrage. |
-| `JWT_SECRET` | `dev-insecure-change-me` | **À changer.** Secret de signature des jetons d'authentification (HS256). |
+| `JWT_SECRET` | `dev-insecure-change-me` | **Le serveur refuse de démarrer** avec cette valeur, qui est publique. Secret de signature des jetons (HS256). `openssl rand -hex 32`. |
 | `JWT_TTL` | `1h` | Durée de vie d'un jeton. Accepte une durée Go (`30m`, `2h`) ou un entier (secondes). |
-| `SEED_ADMIN_PASSWORD` | `admin1234` | **À changer.** Mot de passe des 4 comptes créés **au premier démarrage** (`admin`, `operator`, `auditor`, `viewer`). |
-| `SECRETS_KEY` | `dev-insecure-secrets-key-change-me` | **À changer, et à ne plus jamais modifier.** Passphrase dont dérive la clé AES-256-GCM qui chiffre les secrets et les clés privées de la PKI. |
+| `SEED_ADMIN_PASSWORD` | `admin1234` | Mot de passe des 4 comptes créés **au premier démarrage** (`admin`, `operator`, `auditor`, `viewer`). La console **impose de le changer** à la première connexion : tant que ce n'est pas fait, l'API répond `403` partout ailleurs. |
+| `SECRETS_KEY` | `dev-insecure-secrets-key-change-me` | **Le serveur refuse de démarrer** avec cette valeur. Passphrase dont dérive la clé AES-256-GCM qui chiffre les secrets, les clés privées de la PKI **et celle du certificat TLS**. À fixer avant le premier démarrage, **et à ne plus jamais modifier**. Sauvegardez-la avec la base — `swanmgrctl backup` archive les deux ensemble. |
+| `ALLOW_INSECURE_DEFAULTS` | `false` | Autorise le démarrage avec les deux secrets ci-dessus laissés à leur valeur par défaut. **Réservé au lab** (`make run`, `make lab-up`) : ces valeurs sont dans le dépôt, donc publiques. |
 | `VICI_ENDPOINTS` | *(vide)* | Passerelles à piloter, sous la forme `nom=endpoint`, séparées par des virgules. **Si vide : mode démo** (adaptateur simulé + passerelle `gw-local`). |
 | `POLL_INTERVAL` | `3s` | Période d'interrogation VICI (état des SA, version des passerelles). Augmentez-la sur un parc important. |
 | `CORS_ORIGINS` | `*` | Origines autorisées pour l'API. À restreindre en production. |

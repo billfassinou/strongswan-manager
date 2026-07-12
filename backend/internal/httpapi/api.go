@@ -71,7 +71,11 @@ func (a *API) Router() http.Handler {
 		// Endpoints protégés
 		r.Group(func(r chi.Router) {
 			r.Use(a.Auth.Middleware)
+			// Tant que le compte porte le mot de passe posé à l'installation, seuls /me et
+			// /me/password répondent : l'API ne s'ouvre qu'une fois le mot de passe changé.
+			r.Use(a.requirePasswordChanged)
 			r.Get("/me", a.handleMe)
+			r.Post("/me/password", a.handleChangePassword)
 			r.Get("/gateways", a.handleListGateways)
 			r.Get("/secrets", a.handleListSecrets)
 			r.Get("/certificates", a.handleListCerts)

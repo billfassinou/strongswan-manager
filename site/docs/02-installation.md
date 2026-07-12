@@ -1,31 +1,153 @@
 # Installation
 
-## Prérequis
+Quatre chemins, selon ce que vous faites. Le premier est celui d'une mise en service réelle ;
+le dernier sert à découvrir le produit en cinq minutes.
 
-- **Docker** et **Docker Compose** (c'est tout).
-- Le port **7926** libre sur votre machine.
-
-Rien d'autre n'est nécessaire : PostgreSQL, les migrations de base et le front sont pris en charge automatiquement.
-
-> Vous voulez développer, pas seulement utiliser ? Il vous faudra aussi **Go** et **Node**. Voir [FAQ](16-faq.md).
+| Vous voulez… | Allez à |
+|---|---|
+| **Installer un serveur** (systemd, sans Docker) | [Installation en une commande](#installation-en-une-commande) |
+| Passer par **apt / dnf** (mises à jour intégrées) | [Paquets .deb et .rpm](#paquets-deb-et-rpm) |
+| Installer sur une machine **sans accès Internet** | [Installation hors ligne (air-gap)](#installation-hors-ligne-air-gap) |
+| Déployer avec **Docker** | [Docker](#docker) |
+| **Essayer** le produit, sans rien installer durablement | [Essai rapide](#essai-rapide) |
 
 ---
 
-## Démarrer en trois commandes
+## Installation en une commande
+
+Sur une machine **Debian/Ubuntu** ou **RHEL/AlmaLinux/Rocky** (amd64 ou arm64), avec systemd :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/billfassinou/strongswan-manager/main/deploy/install.sh | sudo bash
+```
+
+Le script vous montre d'abord **ce qu'il va modifier**, puis demande confirmation. Il :
+
+1. installe **PostgreSQL** et **strongSwan** s'ils sont absents ;
+2. crée la base `swan` et un utilisateur système `swanmgr` (sans shell) ;
+3. génère `/etc/strongswan-manager/strongswan-manager.env` avec des **secrets aléatoires** ;
+4. ouvre le socket VICI au groupe `swanmgr` — c'est ce qui permet à la console de piloter
+   charon **sans tourner en root** ;
+5. pose le service systemd, ouvre les ports 7926/7927 dans firewalld ou ufw, et **vérifie
+   que la console répond** avant de vous rendre la main.
+
+À la fin, il affiche l'URL de la console et le mot de passe du compte `admin`.
+
+> Le script télécharge l'archive de la release, **vérifie son empreinte SHA-256** (et sa
+> signature `cosign` si l'outil est présent) et refuse de continuer si elle ne correspond pas.
+
+Options utiles :
+
+| Option | Effet |
+|---|---|
+| `--no-strongswan` | N'installe pas strongSwan. Pour une console qui ne pilote que des passerelles **distantes**. |
+| `--skip-deps` | N'installe aucun paquet. Voir [hors ligne](#installation-hors-ligne-air-gap). |
+| `--version vX.Y.Z` | Installe une version précise. |
+| `--yes` | Ne pose aucune question. |
+
+---
+
+## Paquets .deb et .rpm
+
+Chaque release publie des paquets natifs. Leur intérêt : `apt upgrade` / `dnf upgrade`
+mettent la console à jour comme n'importe quel autre logiciel, **sans toucher à votre
+configuration ni à votre base**.
+
+```bash
+# Debian / Ubuntu
+sudo apt install ./strongswan-manager_1.0.0_amd64.deb
+
+# RHEL / AlmaLinux / Rocky
+sudo dnf install ./strongswan-manager-1.0.0-1.x86_64.rpm
+```
+
+Le post-installation fait le même travail que le script : utilisateur système, base, secrets,
+service. **Retirer le paquet ne supprime ni la base, ni la configuration** — il faudrait les
+effacer explicitement (le message de désinstallation vous donne les commandes).
+
+---
+
+## Installation hors ligne (air-gap)
+
+Les archives `linux` des releases ne sont pas de simples binaires : ce sont des **bundles
+autonomes** contenant le binaire, l'installeur, `swanmgrctl` et l'unité systemd. Rien n'est
+téléchargé pendant l'installation.
+
+Sur une machine connectée :
+
+```bash
+curl -LO https://github.com/billfassinou/strongswan-manager/releases/download/v1.0.0/strongswan-manager_v1.0.0_linux_amd64.tar.gz
+curl -LO https://github.com/billfassinou/strongswan-manager/releases/download/v1.0.0/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Transportez l'archive, puis sur la machine cible :
+
+```bash
+tar xzf strongswan-manager_v1.0.0_linux_amd64.tar.gz
+cd strongswan-manager_v1.0.0_linux_amd64
+sudo ./install.sh --skip-deps
+```
+
+`--skip-deps` signifie « n'installe aucun paquet » : **PostgreSQL doit déjà être présent**
+(fourni par votre image système ou un miroir local), sinon le script s'arrête en vous le
+disant. Sans cette option, l'installeur essaierait d'atteindre les dépôts de la distribution.
+
+---
+
+## Docker
+
+Une image est publiée à chaque release. Le fichier `docker-compose.prod.yml` et le script
+`docker-install.sh` sont dans le bundle (et dans `deploy/` du dépôt).
+
+```bash
+./docker-install.sh
+```
+
+Il génère un `.env` aux secrets aléatoires, démarre PostgreSQL et la console, attend qu'elle
+réponde, puis affiche l'URL et le mot de passe.
+
+Pour un site sans Internet, transportez les images :
+
+```bash
+docker save ghcr.io/billfassinou/strongswan-manager:v1.0.0 postgres:16-alpine | gzip > images.tar.gz
+# sur la machine cible :
+docker load < images.tar.gz
+```
+
+> ⚠️ Ne confondez pas avec `backend/docker-compose.yml`, qui est le **lab de développement** :
+> ses secrets sont publics et ses tunnels sont simulés.
+
+---
+
+## Essai rapide
+
+Pour découvrir l'interface sans rien installer durablement — il vous faut Docker et le dépôt :
 
 ```bash
 git clone <dépôt> && cd strongswan/backend
 make run
-# → ouvrez https://localhost:7926
+# → https://localhost:7926, comptes admin/operator/auditor/viewer, mot de passe admin1234
 ```
 
-`make run` construit l'image, démarre PostgreSQL, applique les migrations, crée les comptes de démonstration, génère l'autorité de certification interne **et le certificat TLS du serveur**, puis lance l'application.
-
-**Ce que vous devez voir** : au bout de quelques secondes, `https://localhost:7926` affiche l'écran de connexion — **précédé d'un avertissement de sécurité du navigateur**.
+C'est le **mode démo** : les tunnels sont **simulés**, aucun trafic n'est réellement chiffré.
+Tout le reste (créer un tunnel, le monter, voir l'état changer en temps réel) fonctionne.
+Voir [Connecter de vraies passerelles](14-connecter-passerelles-reelles.md).
 
 ---
 
-## Le premier accès : l'avertissement du navigateur
+## La première connexion
+
+### Le mot de passe doit être changé
+
+Les quatre comptes (`admin`, `operator`, `auditor`, `viewer`) sont créés au premier démarrage
+avec **le même mot de passe**, celui que l'installeur a tiré au hasard et écrit dans le fichier
+de configuration. La console **impose de le changer** : tant que ce n'est pas fait, l'API
+répond `403` sur tout le reste — le blocage n'est pas qu'un écran, il est dans le serveur.
+
+Les trois autres comptes partagent ce mot de passe : traitez-les aussi, ou désactivez-les.
+
+### L'avertissement du navigateur
 
 C'est normal, et ce n'est pas un défaut : l'application a **généré son propre certificat**,
 signé par sa CA interne. Votre navigateur ne connaît pas cette autorité, donc il vous prévient.
@@ -34,36 +156,26 @@ signé par sa CA interne. Votre navigateur ne connaît pas cette autorité, donc
 > serveur — pas la confidentialité de l'échange. C'est exactement le comportement de Proxmox,
 > pfSense ou TrueNAS au premier démarrage.
 
-Pour continuer : **Avancé** → **Continuer vers localhost**.
+Pour continuer : **Avancé** → **Continuer vers…**
 
-### Faire disparaître l'avertissement (recommandé pour un usage durable)
-
-Importez la CA interne dans le magasin de confiance de vos postes d'administration. À faire
-**une seule fois** — elle vaudra ensuite pour toutes vos instances.
-
-```bash
-# récupérer la CA (elle est publique : aucun secret ici)
-curl -sk https://localhost:7926/api/v1/ca \
-  -H "Authorization: Bearer $TOKEN" | python3 -c 'import sys,json;print(json.load(sys.stdin)["cert_pem"])' > ca.crt
-```
-
-Vous la trouverez aussi dans l'écran **PKI & Certificats**.
-
-- **macOS** : double-cliquez sur `ca.crt` → Trousseau *Système* → réglez sur « Toujours approuver ».
-- **Linux** : `sudo cp ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`
-- **Windows** : `certutil -addstore -f Root ca.crt` (en administrateur).
-
-### Les autres options
+Pour faire disparaître l'avertissement durablement :
 
 | Vous voulez… | Faites |
 |---|---|
-| Un certificat **reconnu**, sans avertissement | `ACME_DOMAIN=vpn.mondomaine.fr` → **Let's Encrypt**. Exige un **domaine public** et le **port 80 joignable depuis Internet**. |
-| Utiliser **votre** certificat (PKI d'entreprise) | `TLS_CERT` et `TLS_KEY` |
-| Terminer le TLS sur un **reverse proxy** existant | `TLS_ENABLED=false` |
+| Garder la CA interne | Importez-la dans le magasin de confiance de vos postes d'administration (écran **PKI & Certificats**). À faire **une seule fois**. |
+| Un certificat **reconnu** | `ACME_DOMAIN=vpn.mondomaine.fr` → **Let's Encrypt**. Exige un **domaine public** et le **port 80 joignable**, redirigé vers le port 7927. |
+| Utiliser **votre** certificat | `TLS_CERT` et `TLS_KEY` |
+| Terminer le TLS sur un **reverse proxy** | `TLS_ENABLED=false` |
+
+Import de la CA sur un poste d'administration :
+
+- **macOS** : double-cliquez sur `ca.crt` → Trousseau *Système* → « Toujours approuver ».
+- **Linux** : `sudo cp ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`
+- **Windows** : `certutil -addstore -f Root ca.crt` (en administrateur).
 
 ⚠️ Si vous accédez à la console par un nom de domaine, **déclarez-le** dans `TLS_SANS`
 (ex. `TLS_SANS="localhost,127.0.0.1,vpn.interne.fr"`) — sinon le navigateur signalera, en plus,
-une incohérence de nom. Voir [Variables d'environnement](A2-configuration.md).
+une incohérence de nom.
 
 ---
 
@@ -75,90 +187,44 @@ une incohérence de nom. Voir [Variables d'environnement](A2-configuration.md).
 | **7927** | HTTP en clair | Uniquement la **CRL** (`/crl.der`) et `/healthz`. Le reste est redirigé vers HTTPS. |
 
 Le port 7927 n'est pas un oubli : le point de distribution de CRL **doit** rester en HTTP, car
-c'est charon qui le lit et il ne ferait pas confiance à notre CA interne. Détail dans
-[Variables d'environnement](A2-configuration.md).
+c'est charon qui le lit et il ne ferait pas confiance à notre CA interne — il lui faudrait,
+pour la valider, la CRL qu'il est justement en train de récupérer (RFC 5280).
 
 ---
 
-## Se connecter
+## Exploiter : `swanmgrctl`
 
-Quatre comptes sont créés au premier démarrage. Le mot de passe est le même pour tous : **`admin1234`** (valeur par défaut de `SEED_ADMIN_PASSWORD`).
+L'installeur pose un outil de cycle de vie :
 
-| Identifiant | Rôle | Peut modifier ? |
-|---|---|---|
-| `admin` | Administrateur | **Oui** |
-| `operator` | Opérateur | **Oui** |
-| `auditor` | Auditeur | Non (lecture seule) |
-| `viewer` | Lecture seule | Non |
+| Commande | Effet |
+|---|---|
+| `swanmgrctl doctor` | Diagnostic complet : base, socket VICI, certificat, ports, pare-feu. **La première chose à lancer quand quelque chose cloche.** |
+| `swanmgrctl backup` | Sauvegarde la base **et** `SECRETS_KEY` dans une archive. |
+| `swanmgrctl restore ARCHIVE` | Restaure. Refuse si la clé de l'archive ne correspond pas à l'installation. |
+| `swanmgrctl upgrade` | Sauvegarde, met à jour, vérifie, et **revient en arrière tout seul** si la console ne répond plus. |
+| `swanmgrctl status` / `logs` | Raccourcis systemd. |
 
-Connectez-vous avec **`admin` / `admin1234`** pour tout voir.
+### La sauvegarde : la base seule ne suffit pas
 
-> Ces comptes ne sont créés **qu'au premier démarrage**, si la base est vide. Ils ne sont pas recréés ensuite.
+`SECRETS_KEY` chiffre vos secrets, la **clé privée de la CA** et celle du **certificat TLS**.
+Un dump PostgreSQL sans cette clé est **définitivement illisible** — et le serveur refuserait
+même de démarrer. Il n'existe aucune procédure de récupération : c'est pourquoi
+`swanmgrctl backup` archive les deux ensemble, et pourquoi `restore` vérifie qu'elles
+correspondent avant de toucher à quoi que ce soit.
+
+> L'archive contient donc `SECRETS_KEY` **en clair**. Traitez-la comme un secret.
 
 ---
 
-## Mode démo vs vraies passerelles
-
-Par défaut, l'application démarre en **mode démo** : elle enregistre une passerelle nommée `gw-local` reliée à un **adaptateur VICI simulé**. Toute l'interface et l'API sont pleinement utilisables (créer un tunnel, le monter, voir l'état changer en temps réel) **sans installer StrongSwan**.
-
-Pour piloter de **vraies passerelles** StrongSwan :
+## Désinstaller
 
 ```bash
-make lab-up      # démarre en plus 2 conteneurs strongSwan et s'y connecte via VICI
+sudo /usr/local/share/strongswan-manager/uninstall.sh           # conserve base et configuration
+sudo /usr/local/share/strongswan-manager/uninstall.sh --purge   # ⚠️ efface tout, irréversible
 ```
 
-Voir [Connecter de vraies passerelles](14-connecter-passerelles-reelles.md).
-
----
-
-## Sécuriser une installation réelle
-
-Les valeurs par défaut sont volontairement lisibles pour la démonstration. **Avant toute mise en service**, changez au minimum :
-
-| Variable | Défaut (non sûr) | À faire |
-|---|---|---|
-| `JWT_SECRET` | `dev-insecure-change-me` | Une chaîne aléatoire longue (≥ 32 caractères) |
-| `SECRETS_KEY` | `dev-insecure-secrets-key-change-me` | Une passphrase forte — **elle chiffre tous vos secrets et clés privées** |
-| `SEED_ADMIN_PASSWORD` | `admin1234` | Un mot de passe fort, **avant le premier démarrage** |
-
-Exemple :
-
-```bash
-JWT_SECRET="$(openssl rand -hex 32)" \
-SECRETS_KEY="$(openssl rand -hex 32)" \
-SEED_ADMIN_PASSWORD='UnMotDePasseFort!' \
-docker compose up --build -d
-```
-
-> ⚠️ **Ne changez pas `SECRETS_KEY` après coup** : les secrets et clés privées déjà stockés ont été chiffrés avec l'ancienne valeur et deviendraient illisibles.
-
-> ⚠️ **`SECRETS_KEY` chiffre aussi la clé de votre certificat TLS.** La changer rendrait le
-> serveur incapable de le relire — il faudrait en réémettre un.
-
-Autres points pour la production :
-
-- **Le TLS est déjà actif** : l'application sert en HTTPS d'emblée. Donnez-lui un certificat
-  reconnu (`ACME_DOMAIN`) ou le vôtre (`TLS_CERT`/`TLS_KEY`), ou importez sa CA interne sur les
-  postes d'administration.
-- Restreignez `CORS_ORIGINS` à votre domaine plutôt que `*`.
-- Sauvegardez la base PostgreSQL (elle contient la configuration, la PKI et l'audit).
-
-La liste complète est dans [Variables d'environnement](A2-configuration.md).
-
----
-
-## Arrêter, redémarrer, nettoyer
-
-```bash
-docker compose stop            # arrêter (les données sont conservées)
-docker compose up -d           # redémarrer
-docker compose logs -f backend # suivre les logs   (ou : make logs)
-
-docker compose down            # arrêter et supprimer les conteneurs
-docker compose down -v         # ⚠️ + EFFACER la base (tunnels, PKI, audit, comptes)
-```
-
-`make lab-down` fait la même chose pour le lab (conteneurs strongSwan compris).
+Sans `--purge`, une réinstallation ultérieure retrouve vos tunnels, votre PKI et votre audit.
+PostgreSQL et strongSwan ne sont jamais désinstallés (d'autres services peuvent en dépendre).
 
 ---
 

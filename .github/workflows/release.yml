@@ -1,8 +1,14 @@
 name: Release
 
-# Sur un tag `v*`, produit des binaires autonomes et les attache à la Release.
-# Le binaire embarque la SPA React (`//go:embed all:dist`) : il faut donc builder
-# le front AVANT le `go build`, sinon la compilation échoue.
+# Sur un tag `v*`, produit :
+#   - des BUNDLES autonomes (binaire + installeur + swanmgrctl + unité systemd) : c'est eux
+#     qui rendent l'installation hors-ligne possible ;
+#   - des paquets .deb / .rpm (amd64, arm64) ;
+#   - une image multi-arch sur GHCR ;
+#   - SHA256SUMS, sa signature cosign (keyless) et un SBOM.
+#
+# Le binaire embarque la SPA React (`//go:embed all:dist`) : il faut donc builder le front
+# AVANT le `go build`, sinon la compilation échoue.
 
 on:
   push:
@@ -11,6 +17,8 @@ on:
 
 permissions:
   contents: write
+  packages: write
+  id-token: write   # cosign keyless (OIDC)
 
 jobs:
   build:
@@ -40,7 +48,7 @@ jobs:
           go-version: '1.23'
           cache-dependency-path: backend/go.sum
 
-      - name: Build binary
+      - name: Build bundle
         working-directory: backend
         env:
           GOOS: ${{ matrix.goos }}
@@ -49,18 +57,74 @@ jobs:
         run: |
           NAME="strongswan-manager_${GITHUB_REF_NAME}_${GOOS}_${GOARCH}"
           mkdir -p "dist/$NAME"
-          go build -trimpath -ldflags "-s -w" -o "dist/$NAME/strongswan-manager" ./cmd/server
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${GITHUB_REF_NAME}" \
+            -o "dist/$NAME/strongswan-manager" ./cmd/server
           cp ../README.md ../LICENSE "dist/$NAME/"
+
+          # Le bundle Linux est auto-suffisant : install.sh s'y exécute SANS rien télécharger.
+          # C'est le chemin d'installation en air-gap — et c'est aussi celui qu'emprunte le
+          # one-liner, qui ne fait que récupérer ce bundle avant de s'y relancer.
+          if [ "$GOOS" = linux ]; then
+            mkdir -p "dist/$NAME/lib"
+            cp ../deploy/install.sh ../deploy/uninstall.sh ../deploy/swanmgrctl "dist/$NAME/"
+            cp ../deploy/strongswan-manager.service "dist/$NAME/"
+            cp ../deploy/docker-compose.prod.yml ../deploy/docker-install.sh "dist/$NAME/"
+            cp ../deploy/lib/common.sh "dist/$NAME/lib/"
+            chmod +x "dist/$NAME/install.sh" "dist/$NAME/uninstall.sh" \
+                     "dist/$NAME/swanmgrctl" "dist/$NAME/docker-install.sh"
+          fi
+
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
+
+      # nfpm résout les chemins de `contents` par rapport au RÉPERTOIRE COURANT, pas au
+      # fichier de configuration : ce job doit donc tourner à la racine du dépôt.
+      - name: Build .deb and .rpm
+        if: matrix.goos == 'linux'
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_Linux_x86_64.tar.gz \
+            | tar xz -C /tmp nfpm
+          NAME="strongswan-manager_${VERSION}_linux_${GOARCH}"
+          mkdir -p backend/dist/pkg
+          cp "backend/dist/$NAME/strongswan-manager" backend/dist/pkg/
+          export SEMVER="${VERSION#v}"
+          /tmp/nfpm package -f deploy/nfpm.yaml -p deb -t backend/dist/
+          /tmp/nfpm package -f deploy/nfpm.yaml -p rpm -t backend/dist/
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.goos }}-${{ matrix.goarch }}
-          path: backend/dist/*.tar.gz
+          path: |
+            backend/dist/*.tar.gz
+            backend/dist/*.deb
+            backend/dist/*.rpm
           retention-days: 1
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}:latest
+
   release:
-    needs: build
+    needs: [build, docker]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,22 +136,54 @@ jobs:
 
       - name: Checksums
         working-directory: dist
-        run: sha256sum *.tar.gz > SHA256SUMS
+        run: sha256sum *.tar.gz *.deb *.rpm > SHA256SUMS
+
+      # Signature keyless : aucune clé à conserver, l'identité du workflow est attestée par
+      # l'OIDC de GitHub. install.sh la vérifie quand cosign est disponible.
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign SHA256SUMS
+        working-directory: dist
+        run: cosign sign-blob --yes --output-signature SHA256SUMS.sig --output-certificate SHA256SUMS.pem SHA256SUMS
+
+      - uses: anchore/sbom-action@v0
+        with:
+          path: backend
+          format: spdx-json
+          output-file: dist/sbom.spdx.json
+          upload-artifact: false
 
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS \
+          gh release create "$GITHUB_REF_NAME" \
+            dist/*.tar.gz dist/*.deb dist/*.rpm \
+            dist/SHA256SUMS dist/SHA256SUMS.sig dist/SHA256SUMS.pem dist/sbom.spdx.json \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
-            --notes "Binaire autonome : il contient l'API **et** l'interface web. Il lui faut un PostgreSQL joignable (\`DATABASE_URL\`).
+            --notes "### Installer
+
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/deploy/install.sh | sudo bash
+          \`\`\`
+
+          Le script installe PostgreSQL et strongSwan si besoin, génère ses secrets, pose le
+          service systemd et vérifie que la console répond.
+
+          **Hors ligne / air-gap** — les archives \`linux\` sont des bundles autonomes :
 
           \`\`\`bash
           tar xzf strongswan-manager_${GITHUB_REF_NAME}_linux_amd64.tar.gz
           cd strongswan-manager_${GITHUB_REF_NAME}_linux_amd64
-          DATABASE_URL='postgres://…' JWT_SECRET=\"\$(openssl rand -hex 32)\" ./strongswan-manager
+          sudo ./install.sh --skip-deps      # aucun accès réseau
           \`\`\`
 
-          Vérifiez l'archive avec \`sha256sum -c SHA256SUMS\`.
+          Aussi disponibles : paquets \`.deb\`/\`.rpm\`, et l'image
+          \`ghcr.io/$GITHUB_REPOSITORY:${GITHUB_REF_NAME}\`.
+
+          Cycle de vie : \`swanmgrctl doctor|backup|restore|upgrade\`.
+
+          Intégrité : \`sha256sum -c SHA256SUMS\` — origine : \`cosign verify-blob\` avec
+          \`SHA256SUMS.sig\` / \`SHA256SUMS.pem\`.
+
           Documentation : https://billfassinou.github.io/strongswan-manager/docs/"

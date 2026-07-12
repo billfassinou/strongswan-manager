@@ -1,0 +1,385 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bill Fassinou
+#
+# swanmgrctl — cycle de vie d'une installation StrongSwan Manager :
+# sauvegarde, restauration, mise à jour, diagnostic.
+#
+# Le point le plus important de cet outil : une sauvegarde de la base SEULE ne vaut RIEN.
+# SECRETS_KEY (dans le fichier de configuration) chiffre les secrets, la clé privée de la CA
+# et celle du certificat TLS ; sans elle, la base restaurée est illisible et le serveur
+# refuse même de démarrer. « swanmgrctl backup » archive donc les deux ensemble, et
+# « restore » refuse une archive dont la clé ne correspond pas à l'installation en place.
+
+set -euo pipefail
+
+for c in "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/common.sh" \
+         /usr/local/share/strongswan-manager/lib/common.sh; do
+  # shellcheck source=lib/common.sh
+  [ -f "$c" ] && { . "$c"; break; }
+done
+command -v die >/dev/null 2>&1 || { echo "lib/common.sh introuvable" >&2; exit 1; }
+
+BACKUP_DIR="${BACKUP_DIR:-/var/backups/strongswan-manager}"
+
+usage() {
+  cat <<'EOF'
+Usage : swanmgrctl <commande> [options]
+
+  doctor                  Diagnostique l'installation (base, VICI, TLS, ports, pare-feu)
+  status                  État du service
+  logs [-f]               Journaux du service
+
+  backup [--out DIR]      Sauvegarde la base ET la clé SECRETS_KEY dans une archive
+  restore ARCHIVE         Restaure une archive (refuse si SECRETS_KEY ne correspond pas)
+  restore ARCHIVE --adopt-key
+                          Restaure ET adopte la clé de l'archive (installation neuve /
+                          migration de machine). Écrase SECRETS_KEY en place.
+
+  upgrade [--version vX.Y.Z] [--bundle CHEMIN]
+                          Sauvegarde, remplace le binaire, redémarre, vérifie la santé,
+                          et REVIENT EN ARRIÈRE automatiquement si le service ne répond pas.
+
+  version
+EOF
+  exit "${1:-0}"
+}
+
+# --- Accès à la base ---------------------------------------------------------
+
+db_url() { env_get DATABASE_URL || die "DATABASE_URL absente de $ENV_FILE"; }
+
+require_pg_tools() {
+  command -v pg_dump >/dev/null 2>&1 || die "pg_dump introuvable (paquet postgresql-client)."
+  command -v psql    >/dev/null 2>&1 || die "psql introuvable (paquet postgresql-client)."
+}
+
+installed_version() {
+  [ -x "$BIN" ] || { echo "(binaire absent)"; return; }
+  "$BIN" --version 2>/dev/null || echo "(inconnue)"
+}
+
+# --- doctor ------------------------------------------------------------------
+
+cmd_doctor() {
+  local rc=0 url sock sw_unit
+
+  echo
+  echo "  StrongSwan Manager — diagnostic"
+  echo
+
+  # Service
+  if systemctl is-active --quiet "$SVC_NAME"; then
+    ok "service actif ($(installed_version))"
+  else
+    warn "service inactif — « systemctl status $SVC_NAME »"; rc=1
+  fi
+
+  # Configuration
+  if [ -f "$ENV_FILE" ]; then
+    ok "configuration : $ENV_FILE (SECRETS_KEY empreinte $(secrets_key_fingerprint || echo '?'))"
+  else
+    warn "configuration absente : $ENV_FILE"; rc=1
+  fi
+
+  # Base
+  url="$(env_get DATABASE_URL || true)"
+  if [ -z "$url" ]; then
+    warn "DATABASE_URL non renseignée"; rc=1
+  elif command -v psql >/dev/null 2>&1 && psql "$url" -tAc 'SELECT 1' >/dev/null 2>&1; then
+    ok "PostgreSQL joignable ($(psql "$url" -tAc 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo '?') migrations appliquées)"
+  else
+    warn "PostgreSQL INJOIGNABLE avec DATABASE_URL"; rc=1
+  fi
+
+  # VICI — le silence est ici le vrai danger : sans endpoint, l'application démarre en
+  # mode démo et fabrique des tunnels qui ont l'air de fonctionner.
+  local endpoints; endpoints="$(env_get VICI_ENDPOINTS || true)"
+  if [ -z "$endpoints" ]; then
+    warn "VICI_ENDPOINTS vide → MODE DÉMO : les tunnels affichés sont SIMULÉS, aucun trafic"
+    warn "  réel n'est chiffré. Renseignez VICI_ENDPOINTS dans $ENV_FILE."
+    rc=1
+  else
+    ok "VICI_ENDPOINTS = $endpoints"
+    sock="$(vici_socket || true)"
+    case "$endpoints" in
+      *unix:*|*/*)
+        if [ -z "$sock" ]; then
+          warn "aucun socket charon trouvé (/run/charon.vici) — strongSwan tourne-t-il ?"; rc=1
+        elif [ "$(stat -c '%G' "$sock")" != "$SVC_USER" ]; then
+          sw_unit="$(strongswan_unit)"
+          warn "le socket $sock n'appartient pas au groupe « $SVC_USER » : la console ne peut"
+          warn "  pas piloter charon. Le drop-in $sw_unit.d/10-vici-swanmgr.conf est-il en place ?"
+          rc=1
+        else
+          ok "socket VICI $sock accessible au groupe « $SVC_USER »"
+        fi
+        ;;
+    esac
+  fi
+
+  # Écouteurs
+  if wait_health 3; then
+    ok "HTTPS :$HTTPS_PORT répond (/healthz)"
+  else
+    warn "HTTPS :$HTTPS_PORT ne répond pas"; rc=1
+  fi
+  if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$HTTP_PORT/healthz" 2>/dev/null)" = 200 ]; then
+    ok "HTTP :$HTTP_PORT répond (CRL Distribution Point)"
+  else
+    warn "HTTP :$HTTP_PORT ne répond pas — les passerelles ne pourront pas récupérer la CRL"; rc=1
+  fi
+
+  # Certificat : ses SAN doivent contenir le nom par lequel on accède à la console.
+  if command -v openssl >/dev/null 2>&1; then
+    local sans
+    sans="$(echo | openssl s_client -connect "127.0.0.1:$HTTPS_PORT" 2>/dev/null \
+      | openssl x509 -noout -ext subjectAltName 2>/dev/null | tail -1 | sed 's/^ *//')"
+    [ -n "$sans" ] && ok "certificat TLS, SAN : $sans"
+  fi
+
+  # Pare-feu
+  if systemctl is-active --quiet firewalld 2>/dev/null; then
+    if firewall-cmd --list-ports 2>/dev/null | grep -q "$HTTPS_PORT/tcp"; then
+      ok "firewalld : port $HTTPS_PORT ouvert"
+    else
+      warn "firewalld actif mais le port $HTTPS_PORT n'est pas ouvert"; rc=1
+    fi
+  fi
+
+  echo
+  if [ "$rc" -eq 0 ]; then
+    ok "aucun problème détecté."
+  else
+    warn "des points demandent votre attention (ci-dessus)."
+  fi
+  echo
+  return "$rc"
+}
+
+# --- backup ------------------------------------------------------------------
+
+cmd_backup() {
+  local out="$BACKUP_DIR"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --out) out="$2"; shift 2 ;;
+      *) die "option inconnue : $1" ;;
+    esac
+  done
+
+  need_root
+  require_pg_tools
+  [ -f "$ENV_FILE" ] || die "configuration introuvable : $ENV_FILE"
+
+  install -d -m 0700 "$out"
+  local stamp tmp archive
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  archive="$out/strongswan-manager_$stamp.tar.gz"
+  tmp="$(make_tmpdir)"
+
+  info "sauvegarde de la base"
+  pg_dump --no-owner --no-privileges -Fc -f "$tmp/database.dump" "$(db_url)" \
+    || die "pg_dump a échoué."
+
+  # La configuration part AVEC la base : c'est elle qui contient SECRETS_KEY.
+  cp "$ENV_FILE" "$tmp/strongswan-manager.env"
+
+  cat > "$tmp/MANIFEST" <<EOF
+tool=swanmgrctl
+created=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+host=$(hostname -f 2>/dev/null || hostname)
+version=$(installed_version)
+secrets_key_fingerprint=$(secrets_key_fingerprint)
+EOF
+
+  ( cd "$tmp" && tar -czf "$archive" MANIFEST database.dump strongswan-manager.env )
+  chmod 0600 "$archive"
+
+  ok "sauvegarde : $archive ($(du -h "$archive" | cut -f1))"
+  warn "cette archive contient SECRETS_KEY EN CLAIR : traitez-la comme un secret."
+  printf '%s\n' "$archive"
+}
+
+# --- restore -----------------------------------------------------------------
+
+cmd_restore() {
+  local archive="" adopt=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --adopt-key) adopt=1; shift ;;
+      -*) die "option inconnue : $1" ;;
+      *) archive="$1"; shift ;;
+    esac
+  done
+  [ -n "$archive" ] || usage 1
+  [ -f "$archive" ] || die "archive introuvable : $archive"
+
+  need_root
+  require_pg_tools
+
+  local tmp; tmp="$(make_tmpdir)"
+  tar -xzf "$archive" -C "$tmp" || die "archive illisible."
+  [ -f "$tmp/database.dump" ] || die "archive invalide : database.dump manquant."
+  [ -f "$tmp/strongswan-manager.env" ] || die "archive invalide : configuration manquante."
+
+  local arch_fp cur_fp arch_key
+  arch_key="$(env_get SECRETS_KEY "$tmp/strongswan-manager.env" || true)"
+  arch_fp="$(secrets_key_fingerprint "$arch_key" || true)"
+  cur_fp="$(secrets_key_fingerprint 2>/dev/null || true)"
+
+  # Restaurer une base chiffrée avec une AUTRE clé produit une installation morte : le
+  # serveur ne sait plus lire sa clé TLS ni sa CA et refuse de démarrer. On bloque ici,
+  # avec le seul remède possible : adopter la clé de l'archive.
+  if [ -n "$cur_fp" ] && [ "$arch_fp" != "$cur_fp" ] && [ "$adopt" -eq 0 ]; then
+    die "SECRETS_KEY NE CORRESPOND PAS.
+  archive     : $arch_fp
+  installation: $cur_fp
+
+  Restaurer cette base avec la clé actuelle la rendrait ILLISIBLE (secrets, CA, clé TLS)
+  et le serveur refuserait de démarrer.
+
+  Si cette archive vient bien de cette installation (machine réinstallée, par exemple),
+  relancez avec --adopt-key : la clé de l'archive remplacera celle en place."
+  fi
+
+  cat <<EOF
+
+  Restauration depuis $archive
+$(sed 's/^/    /' "$tmp/MANIFEST" 2>/dev/null)
+
+  ⚠️ La base « $DB_NAME » va être ÉCRASÉE par le contenu de l'archive.
+
+EOF
+  read -rp "  Taper « restaurer » pour confirmer : " a
+  [ "$a" = "restaurer" ] || die "annulé."
+
+  info "arrêt du service"
+  systemctl stop "$SVC_NAME" >/dev/null 2>&1 || true
+
+  if [ "$adopt" -eq 1 ]; then
+    # On n'écrase que les secrets : DATABASE_URL, TLS_SANS, CRL_URL… décrivent CETTE
+    # machine et doivent survivre à la restauration.
+    local k
+    for k in SECRETS_KEY JWT_SECRET; do
+      local v; v="$(env_get "$k" "$tmp/strongswan-manager.env" || true)"
+      [ -n "$v" ] || continue
+      if grep -q "^$k=" "$ENV_FILE" 2>/dev/null; then
+        sed -i "s|^$k=.*|$k=$v|" "$ENV_FILE"
+      else
+        printf '%s=%s\n' "$k" "$v" >> "$ENV_FILE"
+      fi
+    done
+    ok "SECRETS_KEY et JWT_SECRET adoptés depuis l'archive"
+  fi
+
+  info "restauration de la base"
+  pg_restore --clean --if-exists --no-owner --no-privileges -d "$(db_url)" "$tmp/database.dump" \
+    || warn "pg_restore a signalé des avertissements (souvent bénins sur --clean)."
+
+  info "redémarrage"
+  systemctl start "$SVC_NAME"
+  wait_health 60 || die "le service ne répond pas après restauration : swanmgrctl doctor"
+  ok "restauration terminée."
+}
+
+# --- upgrade -----------------------------------------------------------------
+
+cmd_upgrade() {
+  local version="latest" bundle=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --version) version="$2"; shift 2 ;;
+      --bundle)  bundle="$2";  shift 2 ;;
+      *) die "option inconnue : $1" ;;
+    esac
+  done
+
+  need_root
+  [ -x "$BIN" ] || die "aucune installation trouvée ($BIN)."
+
+  local tmp new; tmp="$(make_tmpdir)"
+
+  if [ -n "$bundle" ]; then
+    # Chemin hors ligne : le bundle a été apporté à la main.
+    if [ -d "$bundle" ]; then new="$bundle/strongswan-manager"
+    else tar -xzf "$bundle" -C "$tmp" || die "bundle illisible : $bundle"
+         new="$(find "$tmp" -name strongswan-manager -type f | head -1)"
+    fi
+    [ -n "$new" ] && [ -f "$new" ] || die "binaire introuvable dans le bundle."
+  else
+    command -v curl >/dev/null 2>&1 || die "curl est requis (ou utilisez --bundle)."
+    local arch base name
+    arch="$(detect_arch)"
+    if [ "$version" = latest ]; then
+      version="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
+        | grep -m1 '"tag_name"' | cut -d'"' -f4)"
+      [ -n "$version" ] || die "impossible de déterminer la dernière version."
+    fi
+    base="https://github.com/$REPO/releases/download/$version"
+    name="strongswan-manager_${version}_linux_${arch}"
+
+    info "téléchargement de $version"
+    curl -fsSL "$base/$name.tar.gz" -o "$tmp/bundle.tar.gz" || die "téléchargement échoué."
+    curl -fsSL "$base/SHA256SUMS"   -o "$tmp/SHA256SUMS"    || die "téléchargement de SHA256SUMS échoué."
+    local expected actual
+    expected="$(awk -v f="$name.tar.gz" '$2 == f || $2 == "*"f {print $1}' "$tmp/SHA256SUMS" | head -1)"
+    actual="$(sha256sum "$tmp/bundle.tar.gz" | cut -d' ' -f1)"
+    [ -n "$expected" ] && [ "$expected" = "$actual" ] \
+      || die "SOMME DE CONTRÔLE INVALIDE — mise à jour interrompue."
+    ok "somme de contrôle vérifiée"
+    tar -xzf "$tmp/bundle.tar.gz" -C "$tmp"
+    new="$tmp/$name/strongswan-manager"
+    # Les outils du bundle valent pour la version installée : on les rafraîchit aussi.
+    [ -f "$tmp/$name/swanmgrctl" ] && install -m 0755 "$tmp/$name/swanmgrctl" "$BIN_DIR/swanmgrctl.new"
+    [ -f "$tmp/$name/lib/common.sh" ] && install -m 0644 "$tmp/$name/lib/common.sh" \
+      /usr/local/share/strongswan-manager/lib/common.sh
+    [ -f "$tmp/$name/strongswan-manager.service" ] && install -m 0644 \
+      "$tmp/$name/strongswan-manager.service" "$UNIT" && systemctl daemon-reload
+  fi
+
+  info "sauvegarde préalable"
+  cmd_backup >/dev/null
+
+  # L'ancien binaire est conservé : c'est tout ce dont on a besoin pour revenir en arrière,
+  # les migrations de schéma étant, elles, appliquées automatiquement au démarrage.
+  cp -a "$BIN" "$BIN.bak"
+  install -m 0755 "$new" "$BIN"
+  ok "binaire remplacé ($(installed_version))"
+
+  info "redémarrage"
+  systemctl restart "$SVC_NAME"
+
+  if wait_health 60; then
+    rm -f "$BIN.bak"
+    [ -f "$BIN_DIR/swanmgrctl.new" ] && mv -f "$BIN_DIR/swanmgrctl.new" "$BIN_DIR/swanmgrctl"
+    ok "mise à jour réussie — $(installed_version)"
+  else
+    warn "le service ne répond pas : RETOUR À LA VERSION PRÉCÉDENTE"
+    rm -f "$BIN_DIR/swanmgrctl.new"
+    mv -f "$BIN.bak" "$BIN"
+    systemctl restart "$SVC_NAME"
+    if wait_health 60; then
+      die "mise à jour annulée, l'ancienne version est de nouveau en service.
+  Journaux de l'échec : journalctl -u $SVC_NAME -n 100 --no-pager"
+    fi
+    die "MISE À JOUR ÉCHOUÉE ET RETOUR ARRIÈRE INFRUCTUEUX.
+  Une sauvegarde a été prise avant l'opération : $BACKUP_DIR
+  Restauration : swanmgrctl restore <archive>
+  Journaux     : journalctl -u $SVC_NAME -n 100 --no-pager"
+  fi
+}
+
+# --- Aiguillage --------------------------------------------------------------
+
+case "${1:-}" in
+  doctor)  shift; cmd_doctor "$@" ;;
+  backup)  shift; cmd_backup "$@" ;;
+  restore) shift; cmd_restore "$@" ;;
+  upgrade) shift; cmd_upgrade "$@" ;;
+  status)  shift; systemctl status "$SVC_NAME" --no-pager "$@" ;;
+  logs)    shift; journalctl -u "$SVC_NAME" -n 100 "$@" ;;
+  version) installed_version ;;
+  ""|--help|-h|help) usage 0 ;;
+  *) printf 'commande inconnue : %s\n\n' "$1" >&2; usage 1 ;;
+esac

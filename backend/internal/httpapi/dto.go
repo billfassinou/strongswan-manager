@@ -28,17 +28,17 @@ type proposalsDTO struct {
 
 // tunnelRequest correspond au corps de POST/PUT /api/v1/tunnels (§10.2).
 type tunnelRequest struct {
-	Name          string    `json:"name"`
-	GatewayID     string    `json:"gateway_id"`
-	PeerGatewayID string    `json:"peer_gateway_id"`
-	PeerCertRef   string    `json:"peer_cert_ref"`
-	Type          string    `json:"type"`
-	IKEVersion int          `json:"ike_version"`
-	Local      endpointDTO  `json:"local"`
-	Remote     endpointDTO  `json:"remote"`
-	Auth       authDTO      `json:"auth"`
-	Proposals  proposalsDTO `json:"proposals"`
-	PFS        bool         `json:"pfs"`
+	Name          string       `json:"name"`
+	GatewayID     string       `json:"gateway_id"`
+	PeerGatewayID string       `json:"peer_gateway_id"`
+	PeerCertRef   string       `json:"peer_cert_ref"`
+	Type          string       `json:"type"`
+	IKEVersion    int          `json:"ike_version"`
+	Local         endpointDTO  `json:"local"`
+	Remote        endpointDTO  `json:"remote"`
+	Auth          authDTO      `json:"auth"`
+	Proposals     proposalsDTO `json:"proposals"`
+	PFS           bool         `json:"pfs"`
 }
 
 func (req tunnelRequest) toDomain() *domain.Tunnel {
@@ -86,22 +86,22 @@ func (req tunnelRequest) toDomain() *domain.Tunnel {
 
 // tunnelResponse est la vue complète d'un tunnel renvoyée par l'API.
 type tunnelResponse struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	GatewayID     string   `json:"gateway_id"`
-	PeerGatewayID string   `json:"peer_gateway_id,omitempty"`
-	Type          string   `json:"type"`
-	IKEVersion    int      `json:"ike_version"`
+	ID            string      `json:"id"`
+	Name          string      `json:"name"`
+	GatewayID     string      `json:"gateway_id"`
+	PeerGatewayID string      `json:"peer_gateway_id,omitempty"`
+	Type          string      `json:"type"`
+	IKEVersion    int         `json:"ike_version"`
 	Local         endpointDTO `json:"local"`
 	Remote        endpointDTO `json:"remote"`
-	AuthMethod    string   `json:"auth_method"`
-	ProposalsIKE  []string `json:"proposals_ike"`
-	ProposalsESP  []string `json:"proposals_esp"`
-	PFS           bool     `json:"pfs"`
-	Status        string   `json:"status"`
-	SecurityScore int      `json:"security_score"`
-	Warnings      []string `json:"warnings"`
-	ConfigVersion int      `json:"config_version"`
+	AuthMethod    string      `json:"auth_method"`
+	ProposalsIKE  []string    `json:"proposals_ike"`
+	ProposalsESP  []string    `json:"proposals_esp"`
+	PFS           bool        `json:"pfs"`
+	Status        string      `json:"status"`
+	SecurityScore int         `json:"security_score"`
+	Warnings      []string    `json:"warnings"`
+	ConfigVersion int         `json:"config_version"`
 }
 
 func toTunnelResponse(t *domain.Tunnel) tunnelResponse {

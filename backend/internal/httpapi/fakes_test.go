@@ -31,6 +31,26 @@ func (f *fakeUsers) GetByIdentity(_ context.Context, id string) (*domain.User, e
 	return nil, store.ErrNotFound
 }
 
+func (f *fakeUsers) GetByID(_ context.Context, id string) (*domain.User, error) {
+	for _, u := range f.byIdentity {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return nil, store.ErrNotFound
+}
+
+func (f *fakeUsers) SetPassword(_ context.Context, id, hash string) error {
+	for _, u := range f.byIdentity {
+		if u.ID == id {
+			u.PassHash = hash
+			u.MustChangePassword = false
+			return nil
+		}
+	}
+	return store.ErrNotFound
+}
+
 type fakeGateways struct{ m map[string]*domain.Gateway }
 
 func (f *fakeGateways) Get(_ context.Context, id string) (*domain.Gateway, error) {
@@ -96,7 +116,9 @@ func (f *fakeTunnels) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-type fakeVersions struct{ byTunnel map[string][]domain.ConfigVersion }
+type fakeVersions struct {
+	byTunnel map[string][]domain.ConfigVersion
+}
 
 func (f *fakeVersions) Create(_ context.Context, v *domain.ConfigVersion) error {
 	f.byTunnel[v.TunnelID] = append(f.byTunnel[v.TunnelID], *v)

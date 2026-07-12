@@ -55,12 +55,23 @@ export interface Me {
   identity: string;
   role: string;
   can_write: boolean;
+  // Vrai tant que le compte porte le mot de passe posé à l'installation. Le backend
+  // répond alors 403 sur tout le reste de l'API : le front n'a rien à décider, il
+  // affiche l'écran de changement de mot de passe.
+  must_change_password: boolean;
 }
 
 export async function login(identity: string, password: string): Promise<{ role: string }> {
   const r = await req("POST", "/auth/login", { identity, password });
   setToken(r.token);
   return r;
+}
+
+// changePassword renvoie un NOUVEAU jeton : l'ancien porte encore le drapeau et resterait
+// refusé par l'API.
+export async function changePassword(current: string, next: string): Promise<void> {
+  const r = await req("POST", "/me/password", { current_password: current, new_password: next });
+  setToken(r.token);
 }
 
 export interface Endpoint {

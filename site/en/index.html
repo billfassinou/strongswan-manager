@@ -62,14 +62,17 @@
       written by hand.
     </p>
     <div class="cta">
-      <a class="btn pri" href="../docs/en/index.html#/02-installation">Get started in 3 commands</a>
+      <a class="btn pri" href="../docs/en/index.html#/02-installation">Install</a>
       <a class="btn" href="../docs/en/index.html">Read the documentation</a>
     </div>
     <div class="quick">
-      <pre>git clone &lt;repository&gt; &amp;&amp; cd strongswan/backend
-make run
-# open https://localhost:7926 — sign in: admin / admin1234
-# HTTPS out of the box (self-signed certificate)</pre>
+      <pre># On a server (Debian/Ubuntu, RHEL/AlmaLinux):
+curl -fsSL https://raw.githubusercontent.com/billfassinou/strongswan-manager/main/deploy/install.sh | sudo bash
+# PostgreSQL, strongSwan, secrets, systemd service, HTTPS: all set up.
+# Offline? The release bundle installs with no network at all (--skip-deps).
+
+# Just trying it out, with Docker:
+git clone &lt;repository&gt; &amp;&amp; cd strongswan/backend &amp;&amp; make run</pre>
     </div>
   </div>
 </div>

@@ -40,7 +40,18 @@ import (
 	"strongswan-manager/web"
 )
 
+// version est renseignée à la compilation (-ldflags "-X main.version=v1.2.3").
+// swanmgrctl s'en sert pour afficher la version installée et pour ses sauvegardes.
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v" || os.Args[1] == "version") {
+		if _, err := os.Stdout.WriteString(version + "\n"); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(log)
 
@@ -52,6 +63,10 @@ func main() {
 
 func run(log *slog.Logger) error {
 	cfg := config.Load()
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	log.Info("StrongSwan Manager", "version", version)
 
 	baseCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -67,7 +82,10 @@ func run(log *slog.Logger) error {
 	}
 	log.Info("migrations appliquées")
 
-	if err := seedUsers(baseCtx, st, cfg.SeedAdminPassword, log); err != nil {
+	// Le changement de mot de passe n'est imposé que sur une installation réelle. Dans le
+	// lab (ALLOW_INSECURE_DEFAULTS), les 4 comptes restent utilisables tels quels : c'est la
+	// promesse du mode démo, et les exemples de la documentation en dépendent.
+	if err := seedUsers(baseCtx, st, cfg.SeedAdminPassword, !cfg.AllowInsecureDefaults, log); err != nil {
 		return err
 	}
 
@@ -237,8 +255,9 @@ func waitForStore(ctx context.Context, dsn string, log *slog.Logger) (*store.Sto
 	return nil, lastErr
 }
 
-// seedUsers crée les 4 comptes de démonstration si la base est vide.
-func seedUsers(ctx context.Context, st *store.Store, password string, log *slog.Logger) error {
+// seedUsers crée les 4 comptes de démonstration si la base est vide. mustChange impose le
+// changement du mot de passe à la première connexion (cf. requirePasswordChanged).
+func seedUsers(ctx context.Context, st *store.Store, password string, mustChange bool, log *slog.Logger) error {
 	n, err := st.Users.Count(ctx)
 	if err != nil {
 		return err
@@ -257,12 +276,19 @@ func seedUsers(ctx context.Context, st *store.Store, password string, log *slog.
 		if err != nil {
 			return err
 		}
-		u := &domain.User{ID: uuid.NewString(), Identity: r.identity, Role: r.role, Enabled: true, PassHash: hash}
+		u := &domain.User{
+			ID: uuid.NewString(), Identity: r.identity, Role: r.role, Enabled: true, PassHash: hash,
+			// Ce mot de passe est le même pour les 4 comptes et figure en clair dans le
+			// fichier de configuration : hors lab, la console impose de le changer à la
+			// première connexion (voir requirePasswordChanged).
+			MustChangePassword: mustChange,
+		}
 		if err := st.Users.Create(ctx, u); err != nil {
 			return err
 		}
 	}
-	log.Info("comptes seedés (admin/operator/auditor/viewer)", "mot_de_passe", "cf. SEED_ADMIN_PASSWORD")
+	log.Info("comptes seedés (admin/operator/auditor/viewer)",
+		"mot_de_passe", "cf. SEED_ADMIN_PASSWORD", "changement_impose", mustChange)
 	return nil
 }
 

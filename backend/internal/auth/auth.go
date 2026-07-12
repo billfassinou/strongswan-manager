@@ -31,11 +31,31 @@ func CheckPassword(hash, pw string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw)) == nil
 }
 
+// MinPasswordLength est la longueur minimale imposée. On mise sur la longueur plutôt que
+// sur des règles de composition : c'est ce que recommande le NIST (SP 800-63B), et c'est
+// ce qui résiste réellement à une attaque hors ligne sur le hash.
+const MinPasswordLength = 12
+
+// ErrWeakPassword indique un mot de passe refusé par la politique.
+var ErrWeakPassword = errors.New("mot de passe trop court")
+
+// ValidatePassword applique la politique de mot de passe de la console.
+func ValidatePassword(pw string) error {
+	if len([]rune(pw)) < MinPasswordLength {
+		return ErrWeakPassword
+	}
+	return nil
+}
+
 // Principal est l'utilisateur authentifié porté par le contexte de la requête.
 type Principal struct {
 	UserID   string
 	Identity string
 	Role     string
+	// MustChangePassword est porté par le jeton lui-même : la console peut ainsi
+	// refuser toute action sans aller interroger la base à chaque requête. Le
+	// changement de mot de passe émet un nouveau jeton, sans ce drapeau.
+	MustChangePassword bool
 }
 
 // CanWrite indique si le principal peut effectuer des actions modifiantes.
@@ -43,8 +63,9 @@ func (p Principal) CanWrite() bool { return domain.RoleCanWrite(p.Role) }
 
 // Claims sont les revendications encodées dans le JWT.
 type Claims struct {
-	Identity string `json:"identity"`
-	Role     string `json:"role"`
+	Identity           string `json:"identity"`
+	Role               string `json:"role"`
+	MustChangePassword bool   `json:"must_change_password,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -63,8 +84,9 @@ func NewManager(secret string, ttl time.Duration) *Manager {
 func (m *Manager) Issue(u *domain.User) (string, time.Time, error) {
 	exp := time.Now().Add(m.ttl)
 	claims := Claims{
-		Identity: u.Identity,
-		Role:     u.Role,
+		Identity:           u.Identity,
+		Role:               u.Role,
+		MustChangePassword: u.MustChangePassword,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   u.ID,
 			ExpiresAt: jwt.NewNumericDate(exp),
@@ -88,7 +110,12 @@ func (m *Manager) Parse(tokenStr string) (*Principal, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Principal{UserID: claims.Subject, Identity: claims.Identity, Role: claims.Role}, nil
+	return &Principal{
+		UserID:             claims.Subject,
+		Identity:           claims.Identity,
+		Role:               claims.Role,
+		MustChangePassword: claims.MustChangePassword,
+	}, nil
 }
 
 type ctxKey int

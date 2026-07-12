@@ -47,8 +47,41 @@ paths:
   /me:
     get:
       summary: Profil du compte authentifié
+      description: >
+        Renvoie id, identity, role, can_write et must_change_password. Tant que
+        must_change_password est vrai (compte encore sur le mot de passe posé à
+        l'installation), tous les autres endpoints répondent 403 password_change_required.
       responses:
         '200': { description: OK }
+  /me/password:
+    post:
+      summary: Changer le mot de passe du compte authentifié
+      description: >
+        Accessible à tous les rôles, y compris en lecture seule. Renvoie un NOUVEAU jeton :
+        l'ancien porte encore must_change_password et resterait bloqué.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string }
+                new_password: { type: string, minLength: 12 }
+      responses:
+        '200':
+          description: Mot de passe changé, nouveau jeton émis
+        '401':
+          description: Mot de passe actuel incorrect
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422':
+          description: Mot de passe refusé (trop court, ou identique à l'ancien)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
   /gateways:
     get:
       summary: Liste des passerelles gérées

@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/web/package-lock.json
+
+      # web/dist est gitignoré et embarqué par //go:embed : sans lui, le go build échoue.
+      - name: Build the embedded SPA
+        working-directory: backend/web
+        run: npm ci && npm run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+
+      # go vet ne dit rien du formatage : 11 fichiers avaient dérivé sans que personne le voie.
+      - name: Gofmt
+        working-directory: backend
+        run: |
+          unformatted="$(gofmt -l . | grep -v '^web/' || true)"
+          if [ -n "$unformatted" ]; then
+            echo "Fichiers non formatés (lancez « gofmt -w » dessus) :"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: Test
+        working-directory: backend
+        run: go test ./...
+
+      - name: Integration tests (Postgres réel)
+        working-directory: backend
+        run: make test-integration
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # SC1091 : lib/common.sh est résolu à l'exécution (bundle ou /usr/local/share),
+          # shellcheck ne peut pas le suivre statiquement — --source-path lui suffit.
+          shellcheck -x --source-path=deploy -e SC1091 \
+            deploy/install.sh deploy/uninstall.sh deploy/swanmgrctl \
+            deploy/docker-install.sh deploy/lib/common.sh deploy/scripts/*.sh \
+            .claude/hooks/*.sh
+
+  # L'installeur touche PostgreSQL, EPEL, systemd, firewalld : sans exécution réelle, il
+  # pourrit en silence entre deux releases. Le runner ubuntu EST une machine systemd + apt,
+  # donc on l'installe pour de bon, en mode bundle (le chemin hors-ligne, celui qu'emprunte
+  # aussi le one-liner après téléchargement).
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/web/package-lock.json
+      - working-directory: backend/web
+        run: npm ci && npm run build
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend/go.sum
+
+      - name: Assembler un bundle
+        run: |
+          NAME="strongswan-manager_v0.0.0-ci_linux_amd64"
+          mkdir -p "/tmp/$NAME/lib"
+          (cd backend && CGO_ENABLED=0 go build -ldflags "-X main.version=v0.0.0-ci" \
+            -o "/tmp/$NAME/strongswan-manager" ./cmd/server)
+          cp deploy/install.sh deploy/uninstall.sh deploy/swanmgrctl \
+             deploy/strongswan-manager.service "/tmp/$NAME/"
+          cp deploy/lib/common.sh "/tmp/$NAME/lib/"
+          chmod +x "/tmp/$NAME"/{install.sh,uninstall.sh,swanmgrctl}
+          echo "BUNDLE=/tmp/$NAME" >> "$GITHUB_ENV"
+
+      - name: Installer (bundle, sans strongSwan)
+        run: sudo "$BUNDLE/install.sh" --yes --no-strongswan
+
+      - name: La console répond et impose le changement de mot de passe
+        run: |
+          set -euo pipefail
+          curl -sk https://127.0.0.1:7926/healthz | grep -q .
+
+          PASS="$(sudo sed -n 's/^SEED_ADMIN_PASSWORD=//p' /etc/strongswan-manager/strongswan-manager.env)"
+          LOGIN="$(curl -sk https://127.0.0.1:7926/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"identity\":\"admin\",\"password\":\"$PASS\"}")"
+          echo "$LOGIN" | grep -q '"must_change_password":true' \
+            || { echo "le compte admin n'exige pas de changer son mot de passe : $LOGIN"; exit 1; }
+
+          TOK="$(echo "$LOGIN" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+          CODE="$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/api/v1/tunnels \
+            -H "Authorization: Bearer $TOK")"
+          [ "$CODE" = 403 ] || { echo "l'API est ouverte avec le mot de passe d'usine (HTTP $CODE)"; exit 1; }
+
+          # Après changement, l'API s'ouvre.
+          NEW="$(curl -sk https://127.0.0.1:7926/api/v1/me/password -H "Authorization: Bearer $TOK" \
+            -H 'Content-Type: application/json' \
+            -d "{\"current_password\":\"$PASS\",\"new_password\":\"unMotDePasseSolide\"}")"
+          TOK2="$(echo "$NEW" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
+          CODE="$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/api/v1/tunnels \
+            -H "Authorization: Bearer $TOK2")"
+          [ "$CODE" = 200 ] || { echo "l'API reste fermée après changement (HTTP $CODE)"; exit 1; }
+
+      # doctor sort en échec si VICI n'est pas branché (mode démo) : ici c'est attendu,
+      # on vérifie donc qu'il le SIGNALE, ce qui est tout l'intérêt de la commande.
+      - name: swanmgrctl doctor signale le mode démo
+        run: sudo swanmgrctl doctor 2>&1 | tee /tmp/doctor.txt; grep -q "MODE DÉMO" /tmp/doctor.txt
+
+      - name: Sauvegarde et restauration
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(sudo swanmgrctl backup | tail -1)"
+          sudo test -f "$ARCHIVE"
+          yes restaurer | sudo swanmgrctl restore "$ARCHIVE"
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+
+      - name: Réinstallation idempotente (secrets conservés)
+        run: |
+          set -euo pipefail
+          BEFORE="$(sudo sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
+          sudo "$BUNDLE/install.sh" --yes --no-strongswan
+          AFTER="$(sudo sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
+          [ "$BEFORE" = "$AFTER" ] || { echo "SECRETS_KEY a été régénérée : les données seraient perdues"; exit 1; }
+
+      - name: Désinstallation
+        run: |
+          sudo /usr/local/share/strongswan-manager/uninstall.sh
+          ! systemctl is-active --quiet strongswan-manager
+
+      - name: Journaux en cas d'échec
+        if: failure()
+        run: sudo journalctl -u strongswan-manager -n 100 --no-pager || true

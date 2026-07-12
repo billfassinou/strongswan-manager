@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bill Fassinou
+#
+# Paquets .deb et .rpm (nfpm). Construits par .github/workflows/release.yml, qui pose
+# BIN_PATH (binaire déjà compilé), SEMVER et GOARCH.
+#
+# Ce que le paquet apporte par rapport au bundle : la mise à jour par le gestionnaire de
+# paquets (apt/dnf upgrade), avec conservation de la configuration.
+
+name: strongswan-manager
+arch: ${GOARCH}
+platform: linux
+version: ${SEMVER}
+section: net
+priority: optional
+maintainer: Bill Fassinou <billfass2010@gmail.com>
+description: |
+  Console web d'administration pour StrongSwan (IPsec).
+  Pilote charon via VICI : tunnels, PKI, secrets, audit, supervision temps réel.
+vendor: StrongSwan Manager
+homepage: https://billfassinou.github.io/strongswan-manager/
+license: AGPL-3.0-or-later
+
+# PostgreSQL est requis (le serveur ne démarre pas sans base). strongSwan est seulement
+# recommandé : sans lui, la console démarre en mode démo — utile pour une console qui ne
+# pilote que des passerelles distantes.
+depends:
+  - postgresql-client
+recommends:
+  - strongswan
+
+overrides:
+  rpm:
+    depends:
+      - postgresql
+    recommends:
+      - strongswan
+
+contents:
+  # nfpm n'expanse PAS les variables d'environnement dans `src` (contrairement à `arch` et
+  # `version`) : le workflow copie donc le binaire déjà compilé à cet emplacement fixe.
+  - src: ./backend/dist/pkg/strongswan-manager
+    dst: /usr/local/bin/strongswan-manager
+    file_info: { mode: 0755 }
+
+  - src: ./deploy/swanmgrctl
+    dst: /usr/local/bin/swanmgrctl
+    file_info: { mode: 0755 }
+
+  - src: ./deploy/lib/common.sh
+    dst: /usr/local/share/strongswan-manager/lib/common.sh
+    file_info: { mode: 0644 }
+
+  - src: ./deploy/uninstall.sh
+    dst: /usr/local/share/strongswan-manager/uninstall.sh
+    file_info: { mode: 0755 }
+
+  - src: ./deploy/strongswan-manager.service
+    dst: /etc/systemd/system/strongswan-manager.service
+    file_info: { mode: 0644 }
+
+  # Modèle uniquement : le vrai fichier est généré au postinstall avec des secrets
+  # aléatoires — et n'est JAMAIS réécrit ensuite (SECRETS_KEY est irremplaçable).
+  - src: ./deploy/strongswan-manager.env.example
+    dst: /usr/local/share/strongswan-manager/strongswan-manager.env.example
+    file_info: { mode: 0644 }
+
+scripts:
+  postinstall: ./deploy/scripts/postinstall.sh
+  preremove: ./deploy/scripts/preremove.sh
+  postremove: ./deploy/scripts/postremove.sh

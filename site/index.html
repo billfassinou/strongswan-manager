@@ -62,14 +62,17 @@
       configuration écrite à la main.
     </p>
     <div class="cta">
-      <a class="btn pri" href="docs/index.html#/02-installation">Démarrer en 3 commandes</a>
+      <a class="btn pri" href="docs/index.html#/02-installation">Installer</a>
       <a class="btn" href="docs/index.html">Lire la documentation</a>
     </div>
     <div class="quick">
-      <pre>git clone &lt;dépôt&gt; &amp;&amp; cd strongswan/backend
-make run
-# ouvrez https://localhost:7926 — connexion : admin / admin1234
-# HTTPS d&#39;emblée (certificat auto-généré)</pre>
+      <pre># Sur un serveur (Debian/Ubuntu, RHEL/AlmaLinux) :
+curl -fsSL https://raw.githubusercontent.com/billfassinou/strongswan-manager/main/deploy/install.sh | sudo bash
+# PostgreSQL, strongSwan, secrets, service systemd, HTTPS : tout est posé.
+# Hors ligne ? Le bundle de la release s&#39;installe sans réseau (--skip-deps).
+
+# Juste essayer, avec Docker :
+git clone &lt;dépôt&gt; &amp;&amp; cd strongswan/backend &amp;&amp; make run</pre>
     </div>
   </div>
 </div>

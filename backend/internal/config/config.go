@@ -8,25 +8,33 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 )
 
+// Valeurs par défaut destinées au lab : elles sont publiques, donc inutilisables en
+// production. Validate refuse de laisser démarrer le serveur avec.
+const (
+	DefaultJWTSecret  = "dev-insecure-change-me"
+	DefaultSecretsKey = "dev-insecure-secrets-key-change-me"
+)
+
 // Config regroupe tous les paramètres d'exécution du serveur.
 type Config struct {
-	HTTPAddr    string        // adresse d'écoute principale, TLS si TLSEnabled (ex. ":7926")
-	DatabaseURL string        // DSN PostgreSQL
-	JWTSecret   string        // secret de signature des JWT
-	JWTTTL      time.Duration // durée de vie des jetons
-	SeedAdminPassword string  // mot de passe du compte admin seedé au démarrage
-	ViciEndpoints []string    // passerelles VICI à enrôler au démarrage: "nom=réseau:adresse"
-	PollInterval  time.Duration // période de sondage VICI
-	SecretsKey    string      // clé de chiffrement applicatif des secrets (32 octets base64/hex ou passphrase)
-	CORSOrigins   []string    // origines autorisées pour le front
-	CRLURL        string        // URL publique du CRL Distribution Point (dans les certificats)
-	CRLValidity   time.Duration // fenêtre nextUpdate des CRL
+	HTTPAddr          string        // adresse d'écoute principale, TLS si TLSEnabled (ex. ":7926")
+	DatabaseURL       string        // DSN PostgreSQL
+	JWTSecret         string        // secret de signature des JWT
+	JWTTTL            time.Duration // durée de vie des jetons
+	SeedAdminPassword string        // mot de passe du compte admin seedé au démarrage
+	ViciEndpoints     []string      // passerelles VICI à enrôler au démarrage: "nom=réseau:adresse"
+	PollInterval      time.Duration // période de sondage VICI
+	SecretsKey        string        // clé de chiffrement applicatif des secrets (32 octets base64/hex ou passphrase)
+	CORSOrigins       []string      // origines autorisées pour le front
+	CRLURL            string        // URL publique du CRL Distribution Point (dans les certificats)
+	CRLValidity       time.Duration // fenêtre nextUpdate des CRL
 
 	// TLS. L'écouteur principal sert en HTTPS par défaut ; l'écouteur clair
 	// (RedirectAddr) sert le CDP /crl.der et redirige le reste vers HTTPS.
@@ -38,6 +46,37 @@ type Config struct {
 	ACMEDomain   string   // si défini: Let's Encrypt. Exige un domaine public joignable en HTTP-01.
 	ACMEEmail    string   // contact ACME (avis d'expiration)
 	ACMECache    string   // répertoire de cache des certificats ACME
+
+	// AllowInsecureDefaults autorise le démarrage avec les secrets de développement.
+	// Posé par le docker-compose du lab et par les tests ; JAMAIS en production.
+	AllowInsecureDefaults bool
+}
+
+// Validate refuse de démarrer avec les secrets de développement, qui sont publics (ils
+// sont dans le dépôt). Sans ce garde-fou, une installation « qui marche » livre une
+// console dont n'importe qui peut forger les jetons et déchiffrer les secrets.
+func (c Config) Validate() error {
+	if c.AllowInsecureDefaults {
+		return nil
+	}
+	var bad []string
+	if c.JWTSecret == DefaultJWTSecret {
+		bad = append(bad, "JWT_SECRET")
+	}
+	if c.SecretsKey == DefaultSecretsKey {
+		bad = append(bad, "SECRETS_KEY")
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s %s la valeur de développement, qui est publique. Générez-en une : openssl rand -hex 32. "+
+			"⚠️ SECRETS_KEY chiffre les secrets, la CA et la clé TLS : fixez-la AVANT le premier "+
+			"démarrage, elle ne peut plus être changée ensuite. "+
+			"Pour un lab, et uniquement pour un lab : ALLOW_INSECURE_DEFAULTS=true",
+		strings.Join(bad, " et "),
+		map[bool]string{true: "gardent", false: "garde"}[len(bad) > 1],
+	)
 }
 
 // Load lit la configuration depuis les variables d'environnement, avec des
@@ -64,6 +103,8 @@ func Load() Config {
 		ACMEDomain:   env("ACME_DOMAIN", ""),
 		ACMEEmail:    env("ACME_EMAIL", ""),
 		ACMECache:    env("ACME_CACHE", "./acme"),
+
+		AllowInsecureDefaults: envBool("ALLOW_INSECURE_DEFAULTS", false),
 	}
 }
 

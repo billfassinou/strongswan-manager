@@ -46,8 +46,8 @@ func newHarness(t *testing.T) *harness {
 	disabledHash, _ := auth.HashPassword("secret")
 
 	users := &fakeUsers{byIdentity: map[string]*domain.User{
-		"admin":    {ID: "u-admin", Identity: "admin", Role: domain.RoleAdmin, Enabled: true, PassHash: adminHash},
-		"blocked":  {ID: "u-blk", Identity: "blocked", Role: domain.RoleViewer, Enabled: false, PassHash: disabledHash},
+		"admin":   {ID: "u-admin", Identity: "admin", Role: domain.RoleAdmin, Enabled: true, PassHash: adminHash},
+		"blocked": {ID: "u-blk", Identity: "blocked", Role: domain.RoleViewer, Enabled: false, PassHash: disabledHash},
 	}}
 	gws := &fakeGateways{m: map[string]*domain.Gateway{
 		gwID:  {ID: gwID, Name: "gw-a", Endpoint: "mock", Version: "6.0.1", Status: "up"},
@@ -358,5 +358,113 @@ func TestOpenAPIServed(t *testing.T) {
 	w := h.do(http.MethodGet, "/api/v1/openapi.yaml", "", nil)
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "openapi") {
 		t.Fatalf("openapi non servi (code %d)", w.Code)
+	}
+}
+
+// --- Mot de passe initial imposé (comptes seedés) ---
+
+// seeded ajoute un compte portant encore le mot de passe d'installation.
+func (h *harness) seeded(t *testing.T, identity, password string) string {
+	t.Helper()
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u := &domain.User{
+		ID: "u-" + identity, Identity: identity, Role: domain.RoleAdmin, Enabled: true,
+		PassHash: hash, MustChangePassword: true,
+	}
+	h.api.Users.(*fakeUsers).byIdentity[identity] = u
+	tok, _, err := h.authM.Issue(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tok
+}
+
+func TestLoginSignalsPasswordChangeRequired(t *testing.T) {
+	h := newHarness(t)
+	h.seeded(t, "fresh", "motdepasseinstall")
+
+	rec := h.do(http.MethodPost, "/api/v1/auth/login", "",
+		map[string]string{"identity": "fresh", "password": "motdepasseinstall"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("login = %d", rec.Code)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["must_change_password"] != true {
+		t.Fatalf("must_change_password absent de la réponse de login : %v", body)
+	}
+}
+
+func TestSeededAccountIsLockedOutOfTheAPI(t *testing.T) {
+	h := newHarness(t)
+	tok := h.seeded(t, "fresh", "motdepasseinstall")
+
+	// Le compte voit /me (pour savoir qu'il doit changer son mot de passe)…
+	if rec := h.do(http.MethodGet, "/api/v1/me", tok, nil); rec.Code != http.StatusOK {
+		t.Fatalf("/me = %d, attendu 200", rec.Code)
+	}
+	// …mais rien d'autre, y compris en lecture.
+	for _, path := range []string{"/api/v1/tunnels", "/api/v1/gateways", "/api/v1/secrets"} {
+		rec := h.do(http.MethodGet, path, tok, nil)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s = %d, attendu 403 tant que le mot de passe initial n'est pas changé", path, rec.Code)
+		}
+	}
+}
+
+func TestChangePasswordUnlocksTheAPI(t *testing.T) {
+	h := newHarness(t)
+	tok := h.seeded(t, "fresh", "motdepasseinstall")
+
+	// Mot de passe actuel faux.
+	rec := h.do(http.MethodPost, "/api/v1/me/password", tok,
+		map[string]string{"current_password": "faux", "new_password": "unNouveauMotDePasse"})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("mot de passe actuel erroné = %d, attendu 401", rec.Code)
+	}
+
+	// Trop court → 422.
+	rec = h.do(http.MethodPost, "/api/v1/me/password", tok,
+		map[string]string{"current_password": "motdepasseinstall", "new_password": "court"})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("mot de passe trop court = %d, attendu 422", rec.Code)
+	}
+
+	// Identique à l'ancien → 422.
+	rec = h.do(http.MethodPost, "/api/v1/me/password", tok,
+		map[string]string{"current_password": "motdepasseinstall", "new_password": "motdepasseinstall"})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("mot de passe inchangé = %d, attendu 422", rec.Code)
+	}
+
+	// Changement valide → nouveau jeton, sans le drapeau.
+	rec = h.do(http.MethodPost, "/api/v1/me/password", tok,
+		map[string]string{"current_password": "motdepasseinstall", "new_password": "unNouveauMotDePasse"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("changement de mot de passe = %d (%s)", rec.Code, rec.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	newTok, _ := body["token"].(string)
+	if newTok == "" || body["must_change_password"] != false {
+		t.Fatalf("réponse inattendue : %v", body)
+	}
+
+	// L'ancien jeton reste bloqué, le nouveau ouvre l'API.
+	if rec := h.do(http.MethodGet, "/api/v1/tunnels", tok, nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("ancien jeton = %d, attendu 403", rec.Code)
+	}
+	if rec := h.do(http.MethodGet, "/api/v1/tunnels", newTok, nil); rec.Code != http.StatusOK {
+		t.Fatalf("nouveau jeton = %d, attendu 200", rec.Code)
+	}
+
+	// Et l'ancien mot de passe ne fonctionne plus.
+	rec = h.do(http.MethodPost, "/api/v1/auth/login", "",
+		map[string]string{"identity": "fresh", "password": "motdepasseinstall"})
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("login avec l'ancien mot de passe = %d, attendu 401", rec.Code)
 	}
 }

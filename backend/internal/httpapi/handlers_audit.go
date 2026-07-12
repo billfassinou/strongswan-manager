@@ -27,7 +27,7 @@ func (a *API) handleAudit(w http.ResponseWriter, r *http.Request) {
 	for _, e := range entries {
 		out = append(out, map[string]any{
 			"id": e.ID, "actor_id": e.ActorID, "action": e.Action, "target": e.Target,
-			"timestamp": e.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
+			"timestamp":      e.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
 			"integrity_hash": e.IntegrityHash, "prev_hash": e.PrevHash,
 		})
 	}

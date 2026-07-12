@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 Bill Fassinou
+#
+# Unité systemd de StrongSwan Manager. Posée par deploy/install.sh.
+
+[Unit]
+Description=StrongSwan Manager — console web d'administration IPsec
+Documentation=https://billfassinou.github.io/strongswan-manager/docs/
+# Si strongSwan tourne ici, on démarre après lui pour que le socket VICI existe déjà.
+# La dépendance à PostgreSQL n'est PAS déclarée ici : elle n'a de sens qu'avec une base
+# locale. Un « Requires=postgresql.service » inconditionnel empêcherait tout simplement le
+# service de démarrer contre une base distante. install.sh pose donc un drop-in
+# (10-local-postgres.conf) uniquement lorsque la base est effectivement locale.
+After=network-online.target strongswan.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=swanmgr
+# Accès au socket VICI local : le drop-in posé sur strongswan.service bascule le socket
+# dans ce groupe après chaque démarrage de charon (il le recrée à chaque fois).
+Group=swanmgr
+
+EnvironmentFile=/etc/strongswan-manager/strongswan-manager.env
+ExecStart=/usr/local/bin/strongswan-manager
+
+Restart=on-failure
+RestartSec=5s
+# Laisse le temps aux migrations et à l'attente de PostgreSQL au premier démarrage.
+TimeoutStartSec=120s
+
+# /var/lib/strongswan-manager : cache des certificats ACME (Let's Encrypt).
+StateDirectory=strongswan-manager
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/strongswan-manager
+
+# --- Durcissement ---
+# Le binaire écoute sur 7926/7927 (> 1024) : aucun privilège n'est requis.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+# AF_UNIX est INDISPENSABLE : c'est par là que passe le socket VICI.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
