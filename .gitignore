@@ -23,3 +23,6 @@ Desktop.ini
 
 # Matériel de travail privé — conservé en local, jamais publié
 spec/
+
+# Outillage Claude Code (CLAUDE.md imbriqués, hooks, skills) — local, non publié
+.claude/
