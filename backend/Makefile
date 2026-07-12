@@ -33,8 +33,13 @@ test-integration: ## Tests d'intégration (dossier ./test, boîte noire) contre 
 	@bash -c 'set -e; \
 	  docker rm -f swan-test-pg >/dev/null 2>&1 || true; \
 	  docker run -d --name swan-test-pg -e POSTGRES_USER=swan -e POSTGRES_PASSWORD=swan -e POSTGRES_DB=swan -p 55432:5432 postgres:16-alpine >/dev/null; \
-	  echo "attente de postgres..."; until docker exec swan-test-pg pg_isready -U swan >/dev/null 2>&1; do sleep 1; done; \
 	  trap "docker rm -f swan-test-pg >/dev/null 2>&1 || true" EXIT; \
+	  echo "attente de postgres..."; \
+	  for i in $$(seq 60); do \
+	    docker exec swan-test-pg psql -U swan -d swan -c "SELECT 1" >/dev/null 2>&1 && break; \
+	    sleep 1; \
+	  done; \
+	  docker exec swan-test-pg psql -U swan -d swan -c "SELECT 1" >/dev/null 2>&1 || { echo "postgres ne répond pas"; exit 1; }; \
 	  DATABASE_URL="postgres://swan:swan@localhost:55432/swan?sslmode=disable" go test -tags integration -count=1 ./test/'
 
 fmt: ## Formatte le code
