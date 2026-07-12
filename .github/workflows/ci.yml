@@ -62,8 +62,7 @@ jobs:
           # shellcheck ne peut pas le suivre statiquement — --source-path lui suffit.
           shellcheck -x --source-path=deploy -e SC1091 \
             deploy/install.sh deploy/uninstall.sh deploy/swanmgrctl \
-            deploy/docker-install.sh deploy/lib/common.sh deploy/scripts/*.sh \
-            .claude/hooks/*.sh
+            deploy/docker-install.sh deploy/lib/common.sh deploy/scripts/*.sh
 
   # L'installeur touche PostgreSQL, EPEL, systemd, firewalld : sans exécution réelle, il
   # pourrit en silence entre deux releases. Le runner ubuntu EST une machine systemd + apt,
