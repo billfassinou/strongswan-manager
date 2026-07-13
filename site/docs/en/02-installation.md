@@ -6,6 +6,7 @@ one is to explore the product in five minutes.
 | You want to… | Go to |
 |---|---|
 | **Install a server** (systemd, no Docker) | [One-command install](#one-command-install) |
+| **Build from the repository** | [Install from source](#install-from-source) |
 | Use **apt / dnf** (upgrades included) | [.deb and .rpm packages](#deb-and-rpm-packages) |
 | Install on a machine with **no Internet access** | [Offline install (air-gap)](#offline-install-air-gap) |
 | Deploy with **Docker** | [Docker](#docker) |
@@ -44,6 +45,29 @@ Useful options:
 | `--skip-deps` | Install no packages at all. See [offline](#offline-install-air-gap). |
 | `--version vX.Y.Z` | Install a specific version. |
 | `--yes` | Ask nothing. |
+
+---
+
+## Install from source
+
+You cloned the repository and want to install **your** build:
+
+```bash
+git clone https://github.com/billfassinou/strongswan-manager.git
+cd strongswan-manager
+sudo ./deploy/install.sh --from-source
+```
+
+The installer builds the web interface (it is **embedded** in the binary), then the Go binary,
+then installs the result **exactly as the bundle would** — one single code path downstream, so
+the same behaviour and the same checks.
+
+Building requires **Go ≥ 1.23** and **Node ≥ 20**. If they are missing or too old — which is the
+case for the Go shipped by AlmaLinux 9 — the installer fetches the **official toolchains**
+(go.dev, nodejs.org) into a temporary directory and builds with those. **Nothing is installed
+permanently on your machine**; the directory is gone when it finishes.
+
+> `--no-strongswan`, `--skip-deps` and `--yes` apply to this mode too.
 
 ---
 
@@ -133,6 +157,36 @@ make run
 This is **demo mode**: tunnels are **simulated**, no traffic is actually encrypted. Everything
 else (create a tunnel, bring it up, watch the status change live) works. See
 [Connect real gateways](14-connecter-passerelles-reelles.md).
+
+---
+
+## The end-of-install report
+
+Whatever the mode, the installer does not merely note that packages are in place: it **opens the
+connections**, exactly as the application will.
+
+| Check | What is actually tested |
+|---|---|
+| **Service** | The console answers on `https://…:7926/healthz`. |
+| **Database** | A connection is **opened** with the configured DSN, and migrations are counted. |
+| **strongSwan (VICI)** | `swanctl` is invoked **as the service user** (`swanmgr`), not as root — which is exactly what the console does. A root test would pass where the service fails. |
+
+### strongSwan unreachable ⇒ the install fails
+
+If strongSwan is installed but the console cannot talk to it, **the install stops with an
+error**. This is deliberate: without VICI the console would start in **demo mode** and display
+**simulated** tunnels — giving the illusion of a VPN while **no traffic is encrypted at all**. An
+install that stops is less dangerous than a console that lies.
+
+The service and its configuration stay in place: there is **nothing to reinstall**. Fix the
+reported point, then re-run the check:
+
+```bash
+swanmgrctl doctor
+```
+
+> Driving **remote** gateways only? Install with `--no-strongswan` and set `VICI_ENDPOINTS` in
+> the configuration.
 
 ---
 

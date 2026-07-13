@@ -6,6 +6,7 @@ le dernier sert à découvrir le produit en cinq minutes.
 | Vous voulez… | Allez à |
 |---|---|
 | **Installer un serveur** (systemd, sans Docker) | [Installation en une commande](#installation-en-une-commande) |
+| **Compiler depuis le dépôt** | [Installation depuis les sources](#installation-depuis-les-sources) |
 | Passer par **apt / dnf** (mises à jour intégrées) | [Paquets .deb et .rpm](#paquets-deb-et-rpm) |
 | Installer sur une machine **sans accès Internet** | [Installation hors ligne (air-gap)](#installation-hors-ligne-air-gap) |
 | Déployer avec **Docker** | [Docker](#docker) |
@@ -44,6 +45,29 @@ Options utiles :
 | `--skip-deps` | N'installe aucun paquet. Voir [hors ligne](#installation-hors-ligne-air-gap). |
 | `--version vX.Y.Z` | Installe une version précise. |
 | `--yes` | Ne pose aucune question. |
+
+---
+
+## Installation depuis les sources
+
+Vous avez cloné le dépôt et vous voulez installer **votre** version compilée :
+
+```bash
+git clone https://github.com/billfassinou/strongswan-manager.git
+cd strongswan-manager
+sudo ./deploy/install.sh --from-source
+```
+
+L'installeur compile l'interface web (elle est **embarquée** dans le binaire), puis le binaire
+Go, puis installe le résultat **exactement comme le ferait le bundle** — un seul chemin de code
+en aval, donc le même comportement et les mêmes vérifications.
+
+La compilation exige **Go ≥ 1.23** et **Node ≥ 20**. S'ils manquent ou sont trop anciens — c'est
+le cas du Go livré par AlmaLinux 9 —, l'installeur récupère les **chaînes officielles**
+(go.dev, nodejs.org) dans un dossier temporaire et compile avec. **Rien n'est installé
+durablement sur votre machine** ; le dossier disparaît à la fin.
+
+> Les options `--no-strongswan`, `--skip-deps` et `--yes` s'appliquent aussi à ce mode.
 
 ---
 
@@ -133,6 +157,36 @@ make run
 C'est le **mode démo** : les tunnels sont **simulés**, aucun trafic n'est réellement chiffré.
 Tout le reste (créer un tunnel, le monter, voir l'état changer en temps réel) fonctionne.
 Voir [Connecter de vraies passerelles](14-connecter-passerelles-reelles.md).
+
+---
+
+## Le bilan de fin d'installation
+
+Quel que soit le mode, l'installeur ne se contente pas de constater que les paquets sont posés :
+il **établit les connexions**, comme le fera l'application.
+
+| Vérification | Ce qui est réellement testé |
+|---|---|
+| **Service** | La console répond sur `https://…:7926/healthz`. |
+| **Base de données** | Une connexion est **ouverte** avec le DSN configuré, et les migrations sont comptées. |
+| **strongSwan (VICI)** | `swanctl` est appelé **sous l'identité du service** (`swanmgr`), pas en root — c'est exactement ce que fait la console. Un test en root passerait là où le service échouerait. |
+
+### strongSwan injoignable ⇒ l'installation échoue
+
+Si strongSwan est installé mais que la console ne parvient pas à lui parler, **l'installation
+s'arrête en erreur**. C'est volontaire : sans VICI, la console démarrerait en **mode démo** et
+afficherait des tunnels **simulés** — donnant l'illusion d'un VPN alors qu'**aucun trafic n'est
+chiffré**. Une installation qui s'arrête est moins dangereuse qu'une console qui ment.
+
+Le service et la configuration restent en place : il n'y a **rien à réinstaller**. Corrigez le
+point signalé, puis relancez la vérification :
+
+```bash
+swanmgrctl doctor
+```
+
+> Vous pilotez uniquement des passerelles **distantes** ? Installez avec `--no-strongswan` et
+> renseignez `VICI_ENDPOINTS` dans la configuration.
 
 ---
 
