@@ -190,7 +190,8 @@ jobs:
 
           # …et le service doit être revenu tout seul sur l'ancien binaire.
           [ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)" = 200 ]
-          sudo swanmgrctl version | grep -q 'v0.0.0-ci'
+          INSTALLED="$(sudo swanmgrctl version)"
+          [ "$INSTALLED" = "v0.0.0-ci" ] || { echo "le rollback n'a pas restauré l'ancien binaire ($INSTALLED)"; exit 1; }
 
       - name: Réinstallation idempotente (secrets conservés)
         run: |
@@ -492,7 +493,10 @@ jobs:
           # Même piège que dans install.sh : « curl | grep -m1 » fait sortir curl en 23 (EPIPE).
           api="$(curl -fsSL https://api.github.com/repos/${{ github.repository }}/releases/latest)"
           LATEST="$(printf '%s\n' "$api" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
-          sudo swanmgrctl version | grep -q "$LATEST"
+          # « cmd | grep -q » : grep ferme le tube, cmd prend un SIGPIPE, et pipefail fait
+          # échouer l'étape. Le même piège que dans install.sh — on compare une valeur.
+          INSTALLED="$(sudo swanmgrctl version)"
+          [ "$INSTALLED" = "$LATEST" ] || { echo "version installée=$INSTALLED, attendue=$LATEST"; exit 1; }
 
       - name: Journaux en cas d'échec
         if: failure()
@@ -536,19 +540,26 @@ jobs:
           set -euo pipefail
           sudo apt-get update -qq && sudo apt-get install -y -qq rpm
 
-          echo "--- dépendances déclarées :"; rpm -qp --requires "$RPM"
+          # On capture UNE FOIS : « rpm … | grep -q » ferait sortir rpm en SIGPIPE, et pipefail
+          # transformerait ça en fausse alerte.
+          REQ="$(rpm -qp --requires "$RPM")"
+          FILES="$(rpm -qlp "$RPM")"
+          echo "--- dépendances déclarées :"; echo "$REQ"
+          echo "--- fichiers :"; echo "$FILES"
+
           for dep in postgresql-server postgresql strongswan; do
-            rpm -qp --requires "$RPM" | grep -qx "$dep" \
+            echo "$REQ" | grep -qx "$dep" \
               || { echo "dépendance MANQUANTE : $dep — une machine propre resterait sans lui"; exit 1; }
           done
 
-          echo "--- fichiers :"; rpm -qlp "$RPM"
           for f in /usr/bin/strongswan-manager /usr/bin/swanmgrctl \
                    /usr/share/strongswan-manager/lib/common.sh \
                    /etc/systemd/system/strongswan-manager.service; do
-            rpm -qlp "$RPM" | grep -qx "$f" || { echo "fichier absent du paquet : $f"; exit 1; }
+            echo "$FILES" | grep -qx "$f" || { echo "fichier absent du paquet : $f"; exit 1; }
           done
+
           # /usr/local est réservé à l'administrateur : un paquet n'a rien à y faire — et le
           # secure_path de sudo ne l'inclut pas, « sudo swanmgrctl » y serait introuvable.
-          rpm -qlp "$RPM" | grep '^/usr/local' \
-            && { echo "le paquet écrit dans /usr/local"; exit 1; } || true
+          if echo "$FILES" | grep -q '^/usr/local'; then
+            echo "le paquet écrit dans /usr/local"; exit 1
+          fi
