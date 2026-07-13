@@ -343,6 +343,8 @@ write_env_file "$DB_PASS" "$WITH_STRONGSWAN"
 
 if [ "$WITH_STRONGSWAN" -eq 1 ] && command -v swanctl >/dev/null 2>&1; then
   install_vici_dropin || true
+  # Le chemin du socket n'est connu qu'une fois charon démarré : on l'inscrit maintenant.
+  set_vici_endpoint || warn "socket VICI introuvable : la console démarrerait en mode démo."
 fi
 
 # --- Service ----------------------------------------------------------------

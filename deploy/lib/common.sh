@@ -245,7 +245,9 @@ CRL_VALIDITY=24h
 # Passerelles pilotées. Vide = mode démo (adaptateur simulé, aucun vrai tunnel).
 # charon local :   VICI_ENDPOINTS=local=unix:/var/run/charon.vici
 # à distance   :   VICI_ENDPOINTS=gw-paris=tcp:10.0.0.5:4502
-VICI_ENDPOINTS=$([ "$with_vici" -eq 1 ] && echo "local=unix:/var/run/charon.vici")
+# Renseigné juste après par set_vici_endpoint, avec le socket RÉELLEMENT créé par charon
+# (son chemin varie selon la distribution). Vide = mode démo.
+VICI_ENDPOINTS=
 
 POLL_INTERVAL=3s
 CORS_ORIGINS=*
@@ -293,9 +295,15 @@ strongswan_unit() {
   printf 'strongswan.service'
 }
 
+# Le chemin du socket VICI DÉPEND DE LA DISTRIBUTION ET DE LA VERSION :
+#   Debian/Ubuntu, strongSwan 5.x : /run/charon.vici
+#   RHEL/AlmaLinux, EPEL 6.x      : /run/strongswan/charon.vici
+# Le coder en dur laissait la console en MODE DÉMO sur toute la famille RHEL, en silence.
+VICI_SOCKETS="/run/charon.vici /var/run/charon.vici /run/strongswan/charon.vici /var/run/strongswan/charon.vici"
+
 vici_socket() {
   local s
-  for s in /run/charon.vici /var/run/charon.vici; do
+  for s in $VICI_SOCKETS; do
     [ -S "$s" ] && { printf '%s' "$s"; return 0; }
   done
   return 1
@@ -317,10 +325,11 @@ install_vici_dropin() {
 
   mkdir -p "/etc/systemd/system/${sw_unit}.d"
   cat > "/etc/systemd/system/${sw_unit}.d/10-vici-swanmgr.conf" <<EOF
-# Posé par StrongSwan Manager : ouvre le socket VICI au groupe « $SVC_USER ».
+# Posé par StrongSwan Manager : ouvre le socket VICI au groupe « $SVC_USER », quel que soit
+# l'emplacement où cette distribution le crée (voir VICI_SOCKETS dans lib/common.sh).
 [Service]
-ExecStartPost=/bin/sh -c 'for i in \$(seq 100); do [ -S /run/charon.vici ] && break; sleep 0.1; done; \
-if [ -S /run/charon.vici ]; then chgrp $SVC_USER /run/charon.vici && chmod 0660 /run/charon.vici; fi'
+ExecStartPost=/bin/sh -c 'for i in \$(seq 100); do for s in $VICI_SOCKETS; do \
+if [ -S "\$s" ]; then chgrp $SVC_USER "\$s" && chmod 0660 "\$s" && exit 0; fi; done; sleep 0.1; done; exit 0'
 EOF
   systemctl daemon-reload
   systemctl enable --now "$sw_unit" >/dev/null 2>&1 \
@@ -336,6 +345,21 @@ EOF
   warn "le socket VICI n'a pas pu être ouvert au groupe « $SVC_USER »."
   warn "la console démarrera en MODE DÉMO ; voir « journalctl -u $sw_unit »."
   return 1
+}
+
+# set_vici_endpoint — inscrit dans la configuration le socket réellement détecté.
+# Il n'est connaissable qu'APRÈS le démarrage de charon : c'est pour cela que l'appel vient
+# après install_vici_dropin, et non au moment d'écrire le fichier de configuration.
+set_vici_endpoint() {
+  local sock
+  sock="$(vici_socket || true)"
+  [ -n "$sock" ] || return 1
+  if grep -q '^VICI_ENDPOINTS=' "$ENV_FILE"; then
+    sed -i "s|^VICI_ENDPOINTS=.*|VICI_ENDPOINTS=local=unix:$sock|" "$ENV_FILE"
+  else
+    printf 'VICI_ENDPOINTS=local=unix:%s\n' "$sock" >> "$ENV_FILE"
+  fi
+  ok "VICI_ENDPOINTS = local=unix:$sock"
 }
 
 remove_vici_dropin() {

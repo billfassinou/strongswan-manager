@@ -34,9 +34,9 @@ write_env_file "$DB_PASS" 0
 # Socket VICI : seulement si strongSwan est installé sur cette machine.
 if command -v swanctl >/dev/null 2>&1; then
   install_vici_dropin || true
-  if [ "$FIRST_INSTALL" -eq 1 ]; then
-    sed -i 's|^VICI_ENDPOINTS=.*|VICI_ENDPOINTS=local=unix:/var/run/charon.vici|' "$ENV_FILE"
-  fi
+  # Le chemin du socket VICI varie selon la distribution (Debian : /run/charon.vici ;
+  # RHEL/EPEL 6.x : /run/strongswan/charon.vici). On inscrit celui réellement créé.
+  set_vici_endpoint || true
 fi
 
 apply_db_dependency
