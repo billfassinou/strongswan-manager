@@ -395,7 +395,8 @@ jobs:
           docker exec box sh -c 'command -v swanctl' >/dev/null
 
           docker exec box systemctl is-active --quiet strongswan-manager
-          docker exec box sh -c "[ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz")" = 200 ]
+          CODE="$(docker exec box curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)"
+          [ "$CODE" = 200 ] || { echo "la console ne répond pas (HTTP $CODE)"; exit 1; }
 
           # Le piège : notre postinstall tournait AVANT que strongSwan soit configuré, et
           # gravait le mode démo. VICI_ENDPOINTS doit être renseigné.
@@ -416,7 +417,8 @@ jobs:
           docker exec box systemctl is-enabled --quiet strongswan-manager \
             || { echo "le service n'est plus activé au démarrage après une mise à jour"; exit 1; }
           sleep 3
-          docker exec box sh -c "[ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz")" = 200 ]
+          CODE="$(docker exec box curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)"
+          [ "$CODE" = 200 ] || { echo "la console ne répond pas (HTTP $CODE)"; exit 1; }
 
       - name: Retrait — la base et la configuration SURVIVENT
         run: |
