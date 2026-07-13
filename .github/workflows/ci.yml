@@ -147,7 +147,7 @@ jobs:
           # printf (une seule ligne) plutôt que `yes` : `yes` continue d'écrire après que
           # restore a lu sa confirmation → « Broken pipe » que set -o pipefail ferait échouer.
           printf 'restaurer\n' | sudo swanmgrctl restore "$ARCHIVE"
-          [ "$(curl -sk -o /dev/null -w \'%{http_code}\' https://127.0.0.1:7926/healthz)" = 200 ]
+          [ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)" = 200 ]
 
       # SECRETS_KEY est la seule chose irremplaçable du produit. « restore » doit REFUSER une
       # archive dont la clé ne correspond pas (sinon la base restaurée serait illisible et le
@@ -168,7 +168,7 @@ jobs:
           echo "✔ restore a refusé (attendu)"
 
           printf 'restaurer\n' | sudo swanmgrctl restore "$ARCHIVE" --adopt-key
-          [ "$(curl -sk -o /dev/null -w \'%{http_code}\' https://127.0.0.1:7926/healthz)" = 200 ]
+          [ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)" = 200 ]
 
       # upgrade remplace le binaire et redémarre : c'est la commande la plus destructrice.
       # Son retour arrière automatique n'avait jamais tourné.
@@ -176,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo swanmgrctl upgrade --bundle "$BUNDLE"
-          [ "$(curl -sk -o /dev/null -w \'%{http_code}\' https://127.0.0.1:7926/healthz)" = 200 ]
+          [ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)" = 200 ]
 
           # Un binaire qui ne démarre pas : l'upgrade doit échouer ET restaurer le précédent.
           mkdir -p /tmp/bad
@@ -189,7 +189,7 @@ jobs:
           echo "✔ l'upgrade a échoué (attendu)"
 
           # …et le service doit être revenu tout seul sur l'ancien binaire.
-          [ "$(curl -sk -o /dev/null -w \'%{http_code}\' https://127.0.0.1:7926/healthz)" = 200 ]
+          [ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)" = 200 ]
           sudo swanmgrctl version | grep -q 'v0.0.0-ci'
 
       - name: Réinstallation idempotente (secrets conservés)
@@ -205,7 +205,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo "$BUNDLE/install.sh" --yes --no-strongswan --skip-deps
-          [ "$(curl -sk -o /dev/null -w \'%{http_code}\' https://127.0.0.1:7926/healthz)" = 200 ]
+          [ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)" = 200 ]
 
       - name: Désinstallation
         run: |
@@ -395,7 +395,7 @@ jobs:
           docker exec box sh -c 'command -v swanctl' >/dev/null
 
           docker exec box systemctl is-active --quiet strongswan-manager
-          docker exec box sh -c "[ "$(curl -sk -o /dev/null -w \'%{http_code}\' https://127.0.0.1:7926/healthz")" = 200 ]
+          docker exec box sh -c "[ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz")" = 200 ]
 
           # Le piège : notre postinstall tournait AVANT que strongSwan soit configuré, et
           # gravait le mode démo. VICI_ENDPOINTS doit être renseigné.
@@ -416,7 +416,7 @@ jobs:
           docker exec box systemctl is-enabled --quiet strongswan-manager \
             || { echo "le service n'est plus activé au démarrage après une mise à jour"; exit 1; }
           sleep 3
-          docker exec box sh -c "[ "$(curl -sk -o /dev/null -w \'%{http_code}\' https://127.0.0.1:7926/healthz")" = 200 ]
+          docker exec box sh -c "[ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz")" = 200 ]
 
       - name: Retrait — la base et la configuration SURVIVENT
         run: |
@@ -476,7 +476,7 @@ jobs:
       - name: La console tourne, et le binaire vient bien de la release
         run: |
           set -euo pipefail
-          [ "$(curl -sk -o /dev/null -w \'%{http_code}\' https://127.0.0.1:7926/healthz)" = 200 ]
+          [ "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)" = 200 ]
           # Même piège que dans install.sh : « curl | grep -m1 » fait sortir curl en 23 (EPIPE).
           api="$(curl -fsSL https://api.github.com/repos/${{ github.repository }}/releases/latest)"
           LATEST="$(printf '%s\n' "$api" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
