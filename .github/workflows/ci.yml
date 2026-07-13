@@ -447,27 +447,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Diagnostic — sudo relaie-t-il stdin depuis un tube ?
-        run: |
-          set +e
-          echo "--- sudo :"; sudo -V | head -1
-          echo "--- use_pty configuré ?"; sudo grep -rn use_pty /etc/sudoers /etc/sudoers.d 2>/dev/null || echo "    (aucun)"
-          echo "--- sonde 1 : printf 'echo X' | sudo bash"
-          printf 'echo SONDE_OK\n' | sudo bash; echo "    rc=$?"
-          echo "--- sonde 2 : avec -s et des arguments"
-          printf 'echo ARGS=[$*]\n' | sudo bash -s -- --yes --no-strongswan; echo "    rc=$?"
-          echo "--- sonde 3 : un script long (20 Ko), comme install.sh"
-          { printf 'echo DEBUT\n'; for i in $(seq 1 800); do echo "# remplissage $i"; done; printf 'echo FIN\n'; } \
-            | sudo bash; echo "    rc=$?"
-
+      # LA vraie commande, telle qu'un utilisateur la tape : le script vient de
+      # raw.githubusercontent (épinglé sur CE commit), et il est piloté par un TUBE.
+      # On ne capture PAS la sortie de bash dans un tee : ce harnais-là masquait le problème
+      # plus qu'il ne le révélait. Seule la stderr de curl est isolée, pour vérifier qu'aucun
+      # « curl: (23) » ne survient — c'est-à-dire que le tube est bien drainé avant le ré-exec.
       - name: curl … | sudo bash (tube, sans terminal — comme cloud-init)
         run: |
-          set -uo pipefail
-          # file:// plutôt que raw.githubusercontent : on teste le script de CETTE branche.
-          curl -fsSL "file://$PWD/deploy/install.sh" | sudo bash -s -- --yes --no-strongswan 2>&1 | tee /tmp/out.txt
-          rc=${PIPESTATUS[1]}
+          set +e
+          URL="https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/deploy/install.sh"
+          curl -fsSL "$URL" 2>/tmp/curl.err | sudo bash -s -- --yes --no-strongswan
+          rc=$?
+          echo "--- code retour de l'installeur : $rc"
+          echo "--- stderr de curl :"; cat /tmp/curl.err
 
-          grep -q "curl: (23)" /tmp/out.txt && { echo "curl (23) : le tube n'est pas drainé"; exit 1; }
+          if grep -q "(23)" /tmp/curl.err; then
+            echo "curl (23) : le tube n'est pas drainé avant le ré-exec"; exit 1
+          fi
           [ "$rc" -eq 0 ] || { echo "le one-liner a échoué (code $rc)"; exit 1; }
 
       - name: La console tourne, et le binaire vient bien de la release
