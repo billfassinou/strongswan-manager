@@ -563,3 +563,81 @@ jobs:
           if echo "$FILES" | grep -q '^/usr/local'; then
             echo "le paquet écrit dans /usr/local"; exit 1
           fi
+
+  # RHEL/AlmaLinux impose « ident » sur 127.0.0.1 dans pg_hba.conf : l'authentification par
+  # MOT DE PASSE y est refusée, alors que notre DSN en utilise un. La base tournait, le rôle
+  # existait, et la console ne pouvait pas s'y connecter — « PostgreSQL INJOIGNABLE ».
+  #
+  # Ce job le prouve de façon DÉTERMINISTE : pas de charon (--no-strongswan), donc aucune des
+  # instabilités qui rendent le cycle de vie complet du RPM intestable en conteneur.
+  installer-rhel-db:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/web/package-lock.json
+      - working-directory: backend/web
+        run: npm ci && npm run build
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23', cache-dependency-path: backend/go.sum }
+
+      - name: Assembler un bundle
+        run: |
+          set -euo pipefail
+          NAME="strongswan-manager_v0.0.0-ci_linux_amd64"
+          mkdir -p "/tmp/b/$NAME/lib"
+          (cd backend && CGO_ENABLED=0 go build -ldflags "-X main.version=v0.0.0-ci" \
+            -o "/tmp/b/$NAME/strongswan-manager" ./cmd/server)
+          cp deploy/install.sh deploy/uninstall.sh deploy/swanmgrctl \
+             deploy/strongswan-manager.service "/tmp/b/$NAME/"
+          cp deploy/lib/common.sh "/tmp/b/$NAME/lib/"
+          chmod +x "/tmp/b/$NAME"/{install.sh,uninstall.sh,swanmgrctl}
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
+
+      - name: "AlmaLinux 9 avec PostgreSQL (pg_hba par défaut : ident)"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/img
+          cat > /tmp/img/Dockerfile <<'EOF'
+          FROM almalinux:9
+          RUN dnf -y install --allowerasing systemd curl tar procps-ng iproute \
+                postgresql-server postgresql >/dev/null && dnf clean all
+          STOPSIGNAL SIGRTMIN+3
+          CMD ["/usr/sbin/init"]
+          EOF
+          docker build -q -t rhelbox -f /tmp/img/Dockerfile /tmp/img
+          docker run -d --name rbox --privileged --cgroupns=host --shm-size=1g \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw -v /tmp/b:/b:ro rhelbox
+          for i in $(seq 60); do
+            docker exec rbox systemctl is-system-running 2>/dev/null | grep -qE 'running|degraded' && break
+            sleep 2
+          done
+
+      - name: Installer, et prouver que la base est JOIGNABLE avec le DSN
+        run: |
+          set -euo pipefail
+          docker exec rbox bash -c "cp -r /b/$NAME /root/b && chmod +x /root/b/install.sh /root/b/swanmgrctl"
+          docker exec rbox /root/b/install.sh --yes --no-strongswan --skip-deps
+
+          # Le cœur du test : le DSN configuré doit RÉELLEMENT ouvrir une connexion.
+          docker exec rbox sh -c 'psql "$(sed -n "s/^DATABASE_URL=//p" /etc/strongswan-manager/strongswan-manager.env)" -tAc "SELECT 1"' \
+            | grep -qx 1 || { echo "la base reste INJOIGNABLE avec le DSN"; exit 1; }
+
+          CODE="$(docker exec rbox curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)"
+          [ "$CODE" = 200 ] || { echo "la console ne répond pas (HTTP $CODE)"; exit 1; }
+
+          # doctor ne doit PAS se plaindre de la base (le mode démo, lui, est attendu ici).
+          docker exec rbox swanmgrctl doctor > /tmp/d.txt 2>&1 || true
+          cat /tmp/d.txt
+          if grep -q "PostgreSQL INJOIGNABLE" /tmp/d.txt; then
+            echo "doctor signale toujours la base injoignable"; exit 1
+          fi
+
+      - name: Diagnostic en cas d'échec
+        if: failure()
+        run: |
+          docker exec rbox cat /var/lib/pgsql/data/pg_hba.conf | grep -vE '^#|^$' || true
+          docker exec rbox journalctl -u strongswan-manager -n 40 --no-pager || true

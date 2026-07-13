@@ -164,10 +164,35 @@ pg_start_and_wait() {
 $(systemctl status postgresql --no-pager -l 2>&1 | tail -8)"
   local i
   for i in $(seq 30); do
-    su - postgres -c "psql -tAc 'SELECT 1'" >/dev/null 2>&1 && return 0
+    if su - postgres -c "psql -tAc 'SELECT 1'" >/dev/null 2>&1; then
+      ensure_pg_password_auth
+      return 0
+    fi
     sleep 1
   done
   die "PostgreSQL ne répond pas."
+}
+
+# RHEL/AlmaLinux impose « ident » sur 127.0.0.1 dans pg_hba.conf : l'authentification PAR MOT
+# DE PASSE y est donc REFUSÉE. Or notre DSN est « postgres://swan:MDP@127.0.0.1:5432 » — la
+# base tourne, le rôle existe, mais la console ne peut pas s'y connecter. Debian, lui, autorise
+# déjà le mot de passe. On aligne les deux.
+#
+# On écrit « md5 » et non « scram-sha-256 » : PostgreSQL ≤ 13 (AlmaLinux 9) hache par défaut en
+# md5, et la méthode « md5 » bascule TOUTE SEULE en SCRAM quand le mot de passe est stocké en
+# SCRAM. C'est le seul choix qui fonctionne dans les deux cas sans réinitialiser le rôle.
+ensure_pg_password_auth() {
+  local hba
+  hba="$(su - postgres -c "psql -tAc 'SHOW hba_file'" 2>/dev/null | tr -d '[:space:]')"
+  [ -n "$hba" ] && [ -f "$hba" ] || { warn "pg_hba.conf introuvable : l'authentification n'a pas pu être vérifiée."; return 0; }
+
+  grep -qE '^host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+(ident|peer|trust)' "$hba" \
+    || return 0   # déjà par mot de passe (cas Debian) : on ne touche à rien
+
+  cp "$hba" "$hba.swanmgr.bak"
+  sed -i -E 's|^(host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+)(ident|peer|trust)|\1md5|' "$hba"
+  systemctl reload postgresql >/dev/null 2>&1 || systemctl restart postgresql >/dev/null 2>&1
+  ok "pg_hba.conf : authentification par mot de passe activée sur localhost (sauvegarde : $hba.swanmgr.bak)"
 }
 
 # provision_db → écrit le mot de passe de la base sur la sortie standard.
