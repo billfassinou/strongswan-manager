@@ -365,7 +365,7 @@ jobs:
             cat > /tmp/img/Dockerfile <<'EOF'
           FROM almalinux:9
           # EPEL : strongSwan n'est PAS dans les dépôts de base de RHEL/AlmaLinux.
-          RUN dnf -y install systemd curl procps-ng iproute epel-release >/dev/null && dnf clean all
+          RUN dnf -y install --allowerasing systemd curl procps-ng iproute epel-release >/dev/null && dnf clean all
           STOPSIGNAL SIGRTMIN+3
           CMD ["/usr/sbin/init"]
           EOF
@@ -446,6 +446,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Diagnostic — sudo relaie-t-il stdin depuis un tube ?
+        run: |
+          set +e
+          echo "--- sudo :"; sudo -V | head -1
+          echo "--- use_pty configuré ?"; sudo grep -rn use_pty /etc/sudoers /etc/sudoers.d 2>/dev/null || echo "    (aucun)"
+          echo "--- sonde 1 : printf 'echo X' | sudo bash"
+          printf 'echo SONDE_OK\n' | sudo bash; echo "    rc=$?"
+          echo "--- sonde 2 : avec -s et des arguments"
+          printf 'echo ARGS=[$*]\n' | sudo bash -s -- --yes --no-strongswan; echo "    rc=$?"
+          echo "--- sonde 3 : un script long (20 Ko), comme install.sh"
+          { printf 'echo DEBUT\n'; for i in $(seq 1 800); do echo "# remplissage $i"; done; printf 'echo FIN\n'; } \
+            | sudo bash; echo "    rc=$?"
 
       - name: curl … | sudo bash (tube, sans terminal — comme cloud-init)
         run: |
