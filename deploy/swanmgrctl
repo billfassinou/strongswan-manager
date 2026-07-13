@@ -13,7 +13,10 @@
 
 set -euo pipefail
 
+# Chemins littéraux : SHARE_DIR est défini DANS common.sh, on ne peut pas s'en servir ici.
+# /usr/local/share : emplacement des versions ≤ 0.3.0, conservé pour les installations en place.
 for c in "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/common.sh" \
+         /usr/share/strongswan-manager/lib/common.sh \
          /usr/local/share/strongswan-manager/lib/common.sh; do
   # shellcheck source=lib/common.sh
   [ -f "$c" ] && { . "$c"; break; }
@@ -334,7 +337,7 @@ cmd_upgrade() {
     # Les outils du bundle valent pour la version installée : on les rafraîchit aussi.
     [ -f "$tmp/$name/swanmgrctl" ] && install -m 0755 "$tmp/$name/swanmgrctl" "$BIN_DIR/swanmgrctl.new"
     [ -f "$tmp/$name/lib/common.sh" ] && install -m 0644 "$tmp/$name/lib/common.sh" \
-      /usr/local/share/strongswan-manager/lib/common.sh
+      "$SHARE_DIR/lib/common.sh"
     [ -f "$tmp/$name/strongswan-manager.service" ] && install -m 0644 \
       "$tmp/$name/strongswan-manager.service" "$UNIT" && systemctl daemon-reload
   fi

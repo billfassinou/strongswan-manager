@@ -22,7 +22,7 @@ User=swanmgr
 Group=swanmgr
 
 EnvironmentFile=/etc/strongswan-manager/strongswan-manager.env
-ExecStart=/usr/local/bin/strongswan-manager
+ExecStart=/usr/bin/strongswan-manager
 
 Restart=on-failure
 RestartSec=5s

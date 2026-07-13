@@ -40,19 +40,19 @@ contents:
   # nfpm n'expanse PAS les variables d'environnement dans `src` (contrairement à `arch` et
   # `version`) : le workflow copie donc le binaire déjà compilé à cet emplacement fixe.
   - src: ./backend/dist/pkg/strongswan-manager
-    dst: /usr/local/bin/strongswan-manager
+    dst: /usr/bin/strongswan-manager
     file_info: { mode: 0755 }
 
   - src: ./deploy/swanmgrctl
-    dst: /usr/local/bin/swanmgrctl
+    dst: /usr/bin/swanmgrctl
     file_info: { mode: 0755 }
 
   - src: ./deploy/lib/common.sh
-    dst: /usr/local/share/strongswan-manager/lib/common.sh
+    dst: /usr/share/strongswan-manager/lib/common.sh
     file_info: { mode: 0644 }
 
   - src: ./deploy/uninstall.sh
-    dst: /usr/local/share/strongswan-manager/uninstall.sh
+    dst: /usr/share/strongswan-manager/uninstall.sh
     file_info: { mode: 0755 }
 
   - src: ./deploy/strongswan-manager.service
@@ -62,7 +62,7 @@ contents:
   # Modèle uniquement : le vrai fichier est généré au postinstall avec des secrets
   # aléatoires — et n'est JAMAIS réécrit ensuite (SECRETS_KEY est irremplaçable).
   - src: ./deploy/strongswan-manager.env.example
-    dst: /usr/local/share/strongswan-manager/strongswan-manager.env.example
+    dst: /usr/share/strongswan-manager/strongswan-manager.env.example
     file_info: { mode: 0644 }
 
 scripts:

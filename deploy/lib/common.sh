@@ -12,8 +12,12 @@
 # --- Emplacements (surchargeables pour les tests) ----------------------------
 
 REPO="${REPO:-billfassinou/strongswan-manager}"
-BIN_DIR="${BIN_DIR:-/usr/local/bin}"
+# /usr/bin, et non /usr/local/bin : c'est un service système (unité systemd, config dans
+# /etc, utilisateur dédié), et surtout le « secure_path » de sudo sur RHEL/AlmaLinux
+# n'inclut PAS /usr/local/bin — « sudo swanmgrctl » y serait introuvable.
+BIN_DIR="${BIN_DIR:-/usr/bin}"
 BIN="${BIN:-$BIN_DIR/strongswan-manager}"
+SHARE_DIR="${SHARE_DIR:-/usr/share/strongswan-manager}"
 ETC_DIR="${ETC_DIR:-/etc/strongswan-manager}"
 ENV_FILE="${ENV_FILE:-$ETC_DIR/strongswan-manager.env}"
 STATE_DIR="${STATE_DIR:-/var/lib/strongswan-manager}"
@@ -101,6 +105,22 @@ make_tmpdir() {
   chmod 0700 "$d"
   SWANMGR_TMPDIRS="$SWANMGR_TMPDIRS $d"
   printf '%s' "$d"
+}
+
+# --- Migration des anciens emplacements --------------------------------------
+
+# Les versions ≤ 0.3.0 posaient les binaires dans /usr/local/bin et les fichiers auxiliaires
+# dans /usr/local/share. On nettoie, sinon un vieux binaire traîne à côté du nouveau et
+# « swanmgrctl » resterait invisible de sudo.
+migrate_from_usr_local() {
+  local legacy_share=/usr/local/share/strongswan-manager
+  local moved=0
+  for f in /usr/local/bin/strongswan-manager /usr/local/bin/swanmgrctl; do
+    [ -e "$f" ] && { rm -f "$f"; moved=1; }
+  done
+  [ -d "$legacy_share" ] && { rm -rf "$legacy_share"; moved=1; }
+  [ "$moved" -eq 1 ] && ok "anciens fichiers de /usr/local nettoyés (déplacés vers $BIN_DIR et $SHARE_DIR)"
+  return 0
 }
 
 # --- Utilisateur système ----------------------------------------------------

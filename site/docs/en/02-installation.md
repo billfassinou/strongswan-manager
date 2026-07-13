@@ -218,8 +218,8 @@ together, and why `restore` checks that they match before touching anything.
 ## Uninstalling
 
 ```bash
-sudo /usr/local/share/strongswan-manager/uninstall.sh           # keeps database and configuration
-sudo /usr/local/share/strongswan-manager/uninstall.sh --purge   # ⚠️ erases everything, irreversible
+sudo /usr/share/strongswan-manager/uninstall.sh           # keeps database and configuration
+sudo /usr/share/strongswan-manager/uninstall.sh --purge   # ⚠️ erases everything, irreversible
 ```
 
 Without `--purge`, a later reinstall finds your tunnels, your PKI and your audit trail again.

@@ -11,6 +11,7 @@
 set -euo pipefail
 
 for c in "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh" \
+         /usr/share/strongswan-manager/lib/common.sh \
          /usr/local/share/strongswan-manager/lib/common.sh; do
   # shellcheck source=lib/common.sh
   [ -f "$c" ] && { . "$c"; break; }
@@ -49,11 +50,11 @@ ok "service et binaires supprimés"
 if [ "$PURGE" -eq 1 ]; then
   su - postgres -c "dropdb --if-exists $DB_NAME" >/dev/null 2>&1 || true
   su - postgres -c "dropuser --if-exists $DB_USER" >/dev/null 2>&1 || true
-  rm -rf "$ETC_DIR" "$STATE_DIR" /usr/local/share/strongswan-manager
+  rm -rf "$ETC_DIR" "$STATE_DIR" "$SHARE_DIR" /usr/local/share/strongswan-manager
   userdel "$SVC_USER" 2>/dev/null || true
   ok "base, configuration et utilisateur supprimés"
 else
-  # /usr/local/share/strongswan-manager (ce script + lib/) est CONSERVÉ : c'est le seul
+  # $SHARE_DIR (ce script + lib/) est CONSERVÉ : c'est le seul
   # moyen de lancer « --purge » plus tard. Le purger ici reviendrait à retirer l'escabeau.
   cat <<EOF
 
@@ -62,7 +63,7 @@ else
     - $ETC_DIR (dont SECRETS_KEY)
     - l'utilisateur système « $SVC_USER »
 
-  Pour tout supprimer : /usr/local/share/strongswan-manager/uninstall.sh --purge
+  Pour tout supprimer : $SHARE_DIR/uninstall.sh --purge
   PostgreSQL et strongSwan ne sont PAS désinstallés (d'autres services peuvent en dépendre).
 
 EOF

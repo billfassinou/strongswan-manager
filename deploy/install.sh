@@ -22,7 +22,7 @@
 #   - installe PostgreSQL (et strongSwan si absent) via le gestionnaire de paquets ;
 #   - crée l'utilisateur système « swanmgr » (sans shell, sans mot de passe) ;
 #   - crée la base « swan » et son utilisateur, avec un mot de passe aléatoire ;
-#   - pose /usr/local/bin/strongswan-manager, /usr/local/bin/swanmgrctl,
+#   - pose /usr/bin/strongswan-manager, /usr/bin/swanmgrctl,
 #     /etc/strongswan-manager/, l'unité systemd ;
 #   - pose un drop-in sur strongswan.service pour ouvrir le socket VICI au groupe swanmgr ;
 #   - ouvre les ports 7926/7927 dans firewalld ou ufw, si l'un des deux est actif.
@@ -290,12 +290,13 @@ DB_PASS="$(provision_db)"
 # --- Utilisateur, binaires, configuration -----------------------------------
 
 ensure_user
+migrate_from_usr_local
 
 install -m 0755 "$SELF_DIR/strongswan-manager" "$BIN"
 install -m 0755 "$SELF_DIR/swanmgrctl" "$BIN_DIR/swanmgrctl"
-install -d -m 0755 /usr/local/share/strongswan-manager/lib
-install -m 0644 "$SELF_DIR/lib/common.sh" /usr/local/share/strongswan-manager/lib/common.sh
-install -m 0755 "$SELF_DIR/uninstall.sh" /usr/local/share/strongswan-manager/uninstall.sh
+install -d -m 0755 "$SHARE_DIR/lib"
+install -m 0644 "$SELF_DIR/lib/common.sh" "$SHARE_DIR/lib/common.sh"
+install -m 0755 "$SELF_DIR/uninstall.sh" "$SHARE_DIR/uninstall.sh"
 ok "binaires installés : $BIN, $BIN_DIR/swanmgrctl"
 
 write_env_file "$DB_PASS" "$WITH_STRONGSWAN"
@@ -344,7 +345,7 @@ cat <<EOF
     Mise à jour   swanmgrctl upgrade
     Journaux      journalctl -u $SVC_NAME -f
     Configuration $ENV_FILE
-    Désinstaller  /usr/local/share/strongswan-manager/uninstall.sh
+    Désinstaller  $SHARE_DIR/uninstall.sh
 
   ⚠️ Sauvegardez $ENV_FILE : il contient SECRETS_KEY, sans laquelle vos secrets et vos
      clés privées seraient DÉFINITIVEMENT illisibles, même avec une sauvegarde de la base.

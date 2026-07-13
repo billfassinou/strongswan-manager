@@ -10,12 +10,13 @@
 set -e
 
 # shellcheck source=../lib/common.sh
-. /usr/local/share/strongswan-manager/lib/common.sh
+. /usr/share/strongswan-manager/lib/common.sh
 
 FIRST_INSTALL=0
 [ -f "$ENV_FILE" ] || FIRST_INSTALL=1
 
 ensure_user
+migrate_from_usr_local
 install -d -m 0750 -o "$SVC_USER" -g "$SVC_USER" "$STATE_DIR"
 
 # Base de données : uniquement si PostgreSQL tourne ici. Avec une base distante,

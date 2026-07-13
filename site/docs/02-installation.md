@@ -219,8 +219,8 @@ correspondent avant de toucher à quoi que ce soit.
 ## Désinstaller
 
 ```bash
-sudo /usr/local/share/strongswan-manager/uninstall.sh           # conserve base et configuration
-sudo /usr/local/share/strongswan-manager/uninstall.sh --purge   # ⚠️ efface tout, irréversible
+sudo /usr/share/strongswan-manager/uninstall.sh           # conserve base et configuration
+sudo /usr/share/strongswan-manager/uninstall.sh --purge   # ⚠️ efface tout, irréversible
 ```
 
 Sans `--purge`, une réinstallation ultérieure retrouve vos tunnels, votre PKI et votre audit.
