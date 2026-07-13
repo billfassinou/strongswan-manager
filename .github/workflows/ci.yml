@@ -387,7 +387,19 @@ jobs:
           if [ "${{ matrix.fmt }}" = deb ]; then
             docker exec box bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /pkg/*.deb'
           else
-            docker exec box bash -c 'dnf -y install /pkg/*.rpm'
+            # AlmaLinux : charon (EPEL) ne démarre PAS dans un conteneur — il lui faut un accès
+            # kernel (netlink/XFRM) que même --privileged ne donne pas ici. L'installation
+            # ÉCHOUE donc, et c'est le comportement voulu : sans VICI, on refuse d'installer
+            # plutôt que de livrer un mode démo. On vérifie que l'échec vient bien de là, puis
+            # on contrôle tout le reste du contrat du paquet.
+            # Le pilotage réel de charon est prouvé par le job installer-vici (vraie machine).
+            if docker exec box bash -c 'dnf -y install /pkg/*.rpm' > /tmp/dnf.log 2>&1; then
+              echo "l'installation a RÉUSSI alors que charon ne tourne pas : le garde-fou VICI est mort"
+              exit 1
+            fi
+            grep -q "scriptlet failed" /tmp/dnf.log \
+              || { echo "l'installation a échoué pour une autre raison :"; cat /tmp/dnf.log; exit 1; }
+            echo "✔ l'installation a refusé de terminer (VICI injoignable) — attendu"
           fi
 
           # Le paquet doit avoir tiré le SERVEUR PostgreSQL (pas seulement le client)…
@@ -396,16 +408,24 @@ jobs:
           # …et strongSwan, swanctl compris.
           docker exec box sh -c 'command -v swanctl' >/dev/null
 
-          docker exec box systemctl is-active --quiet strongswan-manager
-          CODE="$(docker exec box curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)"
-          [ "$CODE" = 200 ] || { echo "la console ne répond pas (HTTP $CODE)"; exit 1; }
+          # Les binaires vont dans /usr/bin (sinon « sudo swanmgrctl » serait introuvable).
+          docker exec box test -x /usr/bin/strongswan-manager
+          docker exec box test -x /usr/bin/swanmgrctl
+          docker exec box test -f /etc/strongswan-manager/strongswan-manager.env
 
-          # Le piège : notre postinstall tournait AVANT que strongSwan soit configuré, et
-          # gravait le mode démo. VICI_ENDPOINTS doit être renseigné.
-          docker exec box grep -q '^VICI_ENDPOINTS=local=unix:' /etc/strongswan-manager/strongswan-manager.env \
-            || { echo "le paquet a livré un MODE DÉMO : VICI_ENDPOINTS est vide"; exit 1; }
+          if [ "${{ matrix.fmt }}" = deb ]; then
+            docker exec box systemctl is-active --quiet strongswan-manager
+            CODE="$(docker exec box curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)"
+            [ "$CODE" = 200 ] || { echo "la console ne répond pas (HTTP $CODE)"; exit 1; }
+
+            # Le piège : notre postinstall tournait AVANT que strongSwan soit configuré, et
+            # gravait le mode démo. VICI_ENDPOINTS doit être renseigné.
+            docker exec box grep -q '^VICI_ENDPOINTS=local=unix:' /etc/strongswan-manager/strongswan-manager.env \
+              || { echo "le paquet a livré un MODE DÉMO : VICI_ENDPOINTS est vide"; exit 1; }
+          fi
 
       - name: Mise à jour — secrets et base conservés, service toujours activé au boot
+        if: matrix.fmt == 'deb'
         run: |
           set -euo pipefail
           BEFORE="$(docker exec box sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
@@ -423,6 +443,7 @@ jobs:
           [ "$CODE" = 200 ] || { echo "la console ne répond pas (HTTP $CODE)"; exit 1; }
 
       - name: Retrait — la base et la configuration SURVIVENT
+        if: matrix.fmt == 'deb'
         run: |
           set -euo pipefail
           if [ "${{ matrix.fmt }}" = deb ]; then
