@@ -198,7 +198,20 @@ ensure_pg_password_auth() {
   fi
 
   cp "$hba" "$hba.swanmgr.bak" || true
-  sed -i -E 's|^(host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+)(ident|peer|trust)|\1md5|' "$hba"
+
+  # Délimiteur « # » et NON « | » : le motif contient déjà des « | » (alternances), et sed
+  # prendrait le premier pour la fin de la commande — « RE error: parentheses not balanced ».
+  # Le sed échouait alors en silence, et le message de succès mentait.
+  sed -i -E 's#^(host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+)(ident|peer|trust)#\1md5#' "$hba"
+
+  # On VÉRIFIE la substitution au lieu de l'affirmer.
+  if grep -qE '^host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+(ident|peer|trust)' "$hba"; then
+    warn "pg_hba.conf n'a PAS pu être modifié : la console ne pourra pas joindre sa base."
+    warn "  Remplacez « ident » par « md5 » sur les lignes 127.0.0.1/32 et ::1/128 de $hba,"
+    warn "  puis : systemctl reload postgresql"
+    return 1
+  fi
+
   systemctl reload postgresql >/dev/null 2>&1 \
     || systemctl restart postgresql >/dev/null 2>&1 \
     || warn "PostgreSQL n'a pas rechargé sa configuration."
