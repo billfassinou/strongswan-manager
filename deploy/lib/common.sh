@@ -156,8 +156,12 @@ pg_start_and_wait() {
       || die "initialisation du cluster PostgreSQL échouée."
     ok "cluster PostgreSQL initialisé"
   fi
-  systemctl enable --now postgresql >/dev/null 2>&1 \
-    || die "PostgreSQL n'a pas démarré (systemctl status postgresql)."
+  # « enable --now » combine deux opérations : si l'activation échoue, RIEN ne démarre et
+  # l'erreur est muette. On les sépare, et on fait remonter le vrai message de systemd.
+  systemctl enable postgresql >/dev/null 2>&1 || true
+  systemctl start postgresql >/dev/null 2>&1 \
+    || die "PostgreSQL n'a pas démarré :
+$(systemctl status postgresql --no-pager -l 2>&1 | tail -8)"
   local i
   for i in $(seq 30); do
     su - postgres -c "psql -tAc 'SELECT 1'" >/dev/null 2>&1 && return 0
