@@ -371,7 +371,9 @@ jobs:
           EOF
           fi
           docker build -q -t box -f /tmp/img/Dockerfile /tmp/img
-          docker run -d --name box --privileged --cgroupns=host \
+          # --shm-size : PostgreSQL a besoin de mémoire partagée ; les 64 Mo par défaut de
+          # Docker ne suffisent pas et le postmaster meurt au démarrage.
+          docker run -d --name box --privileged --cgroupns=host --shm-size=1g \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw -v /tmp/pkg:/pkg:ro box
           for i in $(seq 60); do
             docker exec box systemctl is-system-running 2>/dev/null | grep -qE 'running|degraded' && break
@@ -434,6 +436,9 @@ jobs:
       - name: Diagnostic en cas d'échec
         if: failure()
         run: |
+          echo "--- PostgreSQL :"
+          docker exec box systemctl status postgresql --no-pager -l || true
+          docker exec box sh -c 'tail -30 /var/lib/pgsql/data/log/* 2>/dev/null || tail -30 /var/lib/pgsql/initdb_postgresql.log 2>/dev/null' || true
           echo "--- unités strongswan disponibles :"
           docker exec box systemctl list-unit-files '*strongswan*' --no-legend || true
           echo "--- état de chaque unité :"
