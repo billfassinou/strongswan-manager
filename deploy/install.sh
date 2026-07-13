@@ -143,8 +143,24 @@ if [ -z "$SELF_DIR" ] || [ ! -f "$SELF_DIR/lib/common.sh" ] || [ ! -x "$SELF_DIR
   [ "$WITH_STRONGSWAN" -eq 0 ] && args+=(--no-strongswan)
   [ "$SKIP_DEPS" -eq 1 ] && args+=(--skip-deps)
 
-  SWANMGR_BOOTSTRAPPED=1 SWANMGR_VERSION="$VERSION" \
-    exec bash "$tmp/$name/install.sh" ${args[@]+"${args[@]}"}
+  # Cas « curl … | sudo bash » : la FIN de ce script est encore dans le tube. Si on ré-exécute
+  # sans l'avoir lue, curl meurt en écriture (« curl: (23) Failure writing output »), et le
+  # script ré-exécuté lit ces octets résiduels comme réponse à sa confirmation. On draine donc
+  # d'abord le tube — uniquement si stdin n'est pas déjà un terminal (lancement depuis un
+  # fichier), sinon on bloquerait en attendant une saisie.
+  [ -t 0 ] || cat >/dev/null 2>&1 || true
+
+  # La confirmation du script ré-exécuté doit pouvoir être lue. On teste l'OUVERTURE de
+  # /dev/tty (le nœud peut exister sans terminal de contrôle : cloud-init, CI) : si un terminal
+  # est joignable, on le rebranche sur stdin ; sinon, installation non interactive (--yes).
+  if { : < /dev/tty; } 2>/dev/null; then
+    SWANMGR_BOOTSTRAPPED=1 SWANMGR_VERSION="$VERSION" \
+      exec bash "$tmp/$name/install.sh" ${args[@]+"${args[@]}"} < /dev/tty
+  else
+    case " ${args[*]} " in *" --yes "*) : ;; *) args+=(--yes) ;; esac
+    SWANMGR_BOOTSTRAPPED=1 SWANMGR_VERSION="$VERSION" \
+      exec bash "$tmp/$name/install.sh" ${args[@]+"${args[@]}"} < /dev/null
+  fi
 fi
 
 # --- À partir d'ici : on est DANS le bundle ---------------------------------
