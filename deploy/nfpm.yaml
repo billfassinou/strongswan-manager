@@ -33,8 +33,6 @@ overrides:
   rpm:
     depends:
       - postgresql
-    recommends:
-      - strongswan
 
 contents:
   # nfpm n'expanse PAS les variables d'environnement dans `src` (contrairement à `arch` et
@@ -59,11 +57,6 @@ contents:
     dst: /etc/systemd/system/strongswan-manager.service
     file_info: { mode: 0644 }
 
-  # Modèle uniquement : le vrai fichier est généré au postinstall avec des secrets
-  # aléatoires — et n'est JAMAIS réécrit ensuite (SECRETS_KEY est irremplaçable).
-  - src: ./deploy/strongswan-manager.env.example
-    dst: /usr/share/strongswan-manager/strongswan-manager.env.example
-    file_info: { mode: 0644 }
 
 scripts:
   postinstall: ./deploy/scripts/postinstall.sh

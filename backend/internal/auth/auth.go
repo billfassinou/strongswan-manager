@@ -36,17 +36,6 @@ func CheckPassword(hash, pw string) bool {
 // ce qui résiste réellement à une attaque hors ligne sur le hash.
 const MinPasswordLength = 12
 
-// ErrWeakPassword indique un mot de passe refusé par la politique.
-var ErrWeakPassword = errors.New("mot de passe trop court")
-
-// ValidatePassword applique la politique de mot de passe de la console.
-func ValidatePassword(pw string) error {
-	if len([]rune(pw)) < MinPasswordLength {
-		return ErrWeakPassword
-	}
-	return nil
-}
-
 // Principal est l'utilisateur authentifié porté par le contexte de la requête.
 type Principal struct {
 	UserID   string

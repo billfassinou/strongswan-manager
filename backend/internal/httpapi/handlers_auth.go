@@ -107,7 +107,7 @@ func (a *API) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ve := &domain.ValidationError{}
-	if err := auth.ValidatePassword(req.NewPassword); err != nil {
+	if len([]rune(req.NewPassword)) < auth.MinPasswordLength {
 		ve.Add("new_password", fmt.Sprintf("au moins %d caractères", auth.MinPasswordLength))
 	}
 	if req.NewPassword == req.CurrentPassword {

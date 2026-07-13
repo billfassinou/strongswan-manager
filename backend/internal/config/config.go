@@ -59,24 +59,22 @@ func (c Config) Validate() error {
 	if c.AllowInsecureDefaults {
 		return nil
 	}
-	var bad []string
-	if c.JWTSecret == DefaultJWTSecret {
-		bad = append(bad, "JWT_SECRET")
+	const remedy = "Générez-en une : openssl rand -hex 32. " +
+		"⚠️ SECRETS_KEY chiffre les secrets, la CA et la clé TLS : fixez-la AVANT le premier " +
+		"démarrage, elle ne peut plus être changée ensuite. " +
+		"Pour un lab, et uniquement pour un lab : ALLOW_INSECURE_DEFAULTS=true"
+
+	jwtBad := c.JWTSecret == DefaultJWTSecret
+	keyBad := c.SecretsKey == DefaultSecretsKey
+	switch {
+	case jwtBad && keyBad:
+		return fmt.Errorf("JWT_SECRET et SECRETS_KEY gardent leur valeur de développement, qui est publique. %s", remedy)
+	case jwtBad:
+		return fmt.Errorf("JWT_SECRET garde sa valeur de développement, qui est publique. %s", remedy)
+	case keyBad:
+		return fmt.Errorf("SECRETS_KEY garde sa valeur de développement, qui est publique. %s", remedy)
 	}
-	if c.SecretsKey == DefaultSecretsKey {
-		bad = append(bad, "SECRETS_KEY")
-	}
-	if len(bad) == 0 {
-		return nil
-	}
-	return fmt.Errorf(
-		"%s %s la valeur de développement, qui est publique. Générez-en une : openssl rand -hex 32. "+
-			"⚠️ SECRETS_KEY chiffre les secrets, la CA et la clé TLS : fixez-la AVANT le premier "+
-			"démarrage, elle ne peut plus être changée ensuite. "+
-			"Pour un lab, et uniquement pour un lab : ALLOW_INSECURE_DEFAULTS=true",
-		strings.Join(bad, " et "),
-		map[bool]string{true: "gardent", false: "garde"}[len(bad) > 1],
-	)
+	return nil
 }
 
 // Load lit la configuration depuis les variables d'environnement, avec des
