@@ -623,8 +623,9 @@ jobs:
           docker exec rbox /root/b/install.sh --yes --no-strongswan --skip-deps
 
           # Le cœur du test : le DSN configuré doit RÉELLEMENT ouvrir une connexion.
-          docker exec rbox sh -c 'psql "$(sed -n "s/^DATABASE_URL=//p" /etc/strongswan-manager/strongswan-manager.env)" -tAc "SELECT 1"' \
-            | grep -qx 1 || { echo "la base reste INJOIGNABLE avec le DSN"; exit 1; }
+          OUT="$(docker exec rbox sh -c 'psql "$(sed -n "s/^DATABASE_URL=//p" /etc/strongswan-manager/strongswan-manager.env)" -tAc "SELECT 1"' 2>&1 || true)"
+          [ "$(printf '%s' "$OUT" | tr -d '[:space:]')" = "1" ] \
+            || { echo "la base reste INJOIGNABLE avec le DSN : $OUT"; exit 1; }
 
           CODE="$(docker exec rbox curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz)"
           [ "$CODE" = 200 ] || { echo "la console ne répond pas (HTTP $CODE)"; exit 1; }

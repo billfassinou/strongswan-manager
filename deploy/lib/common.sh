@@ -165,7 +165,7 @@ $(systemctl status postgresql --no-pager -l 2>&1 | tail -8)"
   local i
   for i in $(seq 30); do
     if su - postgres -c "psql -tAc 'SELECT 1'" >/dev/null 2>&1; then
-      ensure_pg_password_auth
+      ensure_pg_password_auth || true
       return 0
     fi
     sleep 1
@@ -182,17 +182,28 @@ $(systemctl status postgresql --no-pager -l 2>&1 | tail -8)"
 # md5, et la méthode « md5 » bascule TOUTE SEULE en SCRAM quand le mot de passe est stocké en
 # SCRAM. C'est le seul choix qui fonctionne dans les deux cas sans réinitialiser le rôle.
 ensure_pg_password_auth() {
-  local hba
-  hba="$(su - postgres -c "psql -tAc 'SHOW hba_file'" 2>/dev/null | tr -d '[:space:]')"
-  [ -n "$hba" ] && [ -f "$hba" ] || { warn "pg_hba.conf introuvable : l'authentification n'a pas pu être vérifiée."; return 0; }
+  local hba=""
+  # « || hba="" » n'est pas décoratif : sous set -e, une affectation dont la substitution
+  # échoue tue le script SANS UN MOT. C'est exactement ce qui se passait ici.
+  hba="$(su - postgres -c "psql -tAc 'SHOW hba_file'" 2>/dev/null | tr -d '[:space:]')" || hba=""
 
-  grep -qE '^host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+(ident|peer|trust)' "$hba" \
-    || return 0   # déjà par mot de passe (cas Debian) : on ne touche à rien
+  if [ -z "$hba" ] || [ ! -f "$hba" ]; then
+    warn "pg_hba.conf introuvable : l'authentification par mot de passe n'a pas pu être vérifiée."
+    return 0
+  fi
 
-  cp "$hba" "$hba.swanmgr.bak"
+  # Déjà par mot de passe (cas Debian) : on ne touche à rien.
+  if ! grep -qE '^host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+(ident|peer|trust)' "$hba"; then
+    return 0
+  fi
+
+  cp "$hba" "$hba.swanmgr.bak" || true
   sed -i -E 's|^(host[[:space:]]+all[[:space:]]+all[[:space:]]+(127\.0\.0\.1/32|::1/128)[[:space:]]+)(ident|peer|trust)|\1md5|' "$hba"
-  systemctl reload postgresql >/dev/null 2>&1 || systemctl restart postgresql >/dev/null 2>&1
+  systemctl reload postgresql >/dev/null 2>&1 \
+    || systemctl restart postgresql >/dev/null 2>&1 \
+    || warn "PostgreSQL n'a pas rechargé sa configuration."
   ok "pg_hba.conf : authentification par mot de passe activée sur localhost (sauvegarde : $hba.swanmgr.bak)"
+  return 0
 }
 
 # provision_db → écrit le mot de passe de la base sur la sortie standard.
