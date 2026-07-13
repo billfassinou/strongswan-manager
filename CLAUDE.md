@@ -16,6 +16,25 @@ Local tooling (kept out of the repo, under a gitignored `.claude/`): hooks enfor
 invariants below, and skills carry the repeated workflows (`doc-page`, `release`). The rules
 here hold regardless — the hooks just catch slips early; CI is the backstop.
 
+## How to work here
+
+Adopted from the Karpathy guidelines. They bias toward caution over speed; use judgment on
+trivial tasks. Where they were violated in this repo, it cost real bugs — the examples are real.
+
+1. **Think before coding.** State assumptions. If several interpretations exist, present them —
+   never pick silently. If a simpler approach exists, say so.
+2. **Simplicity first.** The minimum code that solves the problem. No feature beyond what was
+   asked, no abstraction for a single call site, no configurability nobody requested, no error
+   handling for impossible cases. If 200 lines could be 50, rewrite them.
+3. **Surgical changes.** Every changed line must trace to the request. Do not "improve" adjacent
+   code, and do not fold a formatting sweep into a security fix — it hides the diff that matters.
+   Notice unrelated dead code? Mention it; don't delete it.
+4. **Prove, don't assert.** Turn the task into a verifiable goal *before* coding ("fix the bug" →
+   "write a failing test, then make it pass"). **Never claim a guarantee that no test exercises.**
+   This is the rule this repo has broken hardest: the 403 lock was documented as covering the
+   whole API while `/api/v1/ws` was never checked — the claim was in the code comments, the
+   coverage was not.
+
 ## Nature of this repository
 
 A **web management interface for StrongSwan** (open-source IPsec VPN), targeting network
