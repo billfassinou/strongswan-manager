@@ -58,7 +58,7 @@ jobs:
       - name: ShellCheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          # SC1091 : lib/common.sh est résolu à l'exécution (bundle ou /usr/local/share),
+          # SC1091 : lib/common.sh est résolu à l'exécution (bundle ou /usr/share),
           # shellcheck ne peut pas le suivre statiquement — --source-path lui suffit.
           shellcheck -x --source-path=deploy -e SC1091 \
             deploy/install.sh deploy/uninstall.sh deploy/swanmgrctl \
@@ -152,7 +152,7 @@ jobs:
 
       - name: Désinstallation
         run: |
-          sudo /usr/local/share/strongswan-manager/uninstall.sh
+          sudo /usr/share/strongswan-manager/uninstall.sh
           ! systemctl is-active --quiet strongswan-manager
 
       - name: Journaux en cas d'échec
