@@ -332,9 +332,13 @@ ExecStartPost=/bin/sh -c 'for i in \$(seq 100); do for s in $VICI_SOCKETS; do \
 if [ -S "\$s" ]; then chgrp $SVC_USER "\$s" && chmod 0660 "\$s" && exit 0; fi; done; sleep 0.1; done; exit 0'
 EOF
   systemctl daemon-reload
-  systemctl enable --now "$sw_unit" >/dev/null 2>&1 \
-    || { warn "$sw_unit n'a pas démarré — la console démarrera en mode démo."; return 1; }
-  systemctl restart "$sw_unit" >/dev/null 2>&1 || true
+  # « enable » et « start » sont DÉCOUPLÉS : sur EPEL, strongswan.service n'a pas toujours de
+  # section [Install], et « enable --now » échoue alors SANS RIEN DÉMARRER — charon ne tournait
+  # pas, le socket n'existait pas, et la console tombait en mode démo.
+  systemctl enable "$sw_unit" >/dev/null 2>&1 \
+    || warn "$sw_unit ne peut pas être activé au démarrage (unité sans section [Install])."
+  systemctl restart "$sw_unit" >/dev/null 2>&1 \
+    || { warn "$sw_unit n'a pas démarré : $(systemctl is-active "$sw_unit" 2>&1)"; return 1; }
   sleep 2
 
   local sock; sock="$(vici_socket || true)"
