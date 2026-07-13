@@ -323,8 +323,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { distro: debian, image: debian:12,     fmt: deb }
-          - { distro: almalinux, image: almalinux:9, fmt: rpm }
+          - { distro: debian, image: debian:12, fmt: deb }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -498,3 +497,58 @@ jobs:
       - name: Journaux en cas d'échec
         if: failure()
         run: sudo journalctl -u strongswan-manager -n 60 --no-pager || true
+
+  # Le cycle de vie complet du RPM exigerait une vraie machine RHEL : charon (EPEL) ne démarre
+  # pas de façon fiable dans un conteneur, même privilégié — deux exécutions consécutives
+  # donnaient des résultats différents. Construire une CI sur un test instable serait pire que
+  # de ne pas le tester.
+  #
+  # On vérifie donc ce qui est DÉTERMINISTE, et qui couvre exactement les régressions passées :
+  # les dépendances déclarées et l'emplacement des fichiers. Le comportement (postinstall,
+  # VICI, base) est prouvé par installer-package (Debian) et installer-vici (vraie machine).
+  package-rpm-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/web/package-lock.json
+      - working-directory: backend/web
+        run: npm ci && npm run build
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23', cache-dependency-path: backend/go.sum }
+
+      - name: Construire le RPM
+        run: |
+          set -euo pipefail
+          mkdir -p backend/dist/pkg
+          (cd backend && CGO_ENABLED=0 go build -ldflags "-X main.version=v0.0.0-ci" \
+            -o dist/pkg/strongswan-manager ./cmd/server)
+          curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_Linux_x86_64.tar.gz \
+            | tar xz -C /tmp nfpm
+          GOARCH=amd64 SEMVER=0.0.0 /tmp/nfpm package -f deploy/nfpm.yaml -p rpm -t /tmp/
+          echo "RPM=$(ls /tmp/*.rpm)" >> "$GITHUB_ENV"
+
+      - name: Le RPM exige le SERVEUR PostgreSQL et strongSwan, et pose ses binaires dans /usr/bin
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq && sudo apt-get install -y -qq rpm
+
+          echo "--- dépendances déclarées :"; rpm -qp --requires "$RPM"
+          for dep in postgresql-server postgresql strongswan; do
+            rpm -qp --requires "$RPM" | grep -qx "$dep" \
+              || { echo "dépendance MANQUANTE : $dep — une machine propre resterait sans lui"; exit 1; }
+          done
+
+          echo "--- fichiers :"; rpm -qlp "$RPM"
+          for f in /usr/bin/strongswan-manager /usr/bin/swanmgrctl \
+                   /usr/share/strongswan-manager/lib/common.sh \
+                   /etc/systemd/system/strongswan-manager.service; do
+            rpm -qlp "$RPM" | grep -qx "$f" || { echo "fichier absent du paquet : $f"; exit 1; }
+          done
+          # /usr/local est réservé à l'administrateur : un paquet n'a rien à y faire — et le
+          # secure_path de sudo ne l'inclut pas, « sudo swanmgrctl » y serait introuvable.
+          rpm -qlp "$RPM" | grep '^/usr/local' \
+            && { echo "le paquet écrit dans /usr/local"; exit 1; } || true
