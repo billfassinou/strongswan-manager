@@ -46,11 +46,51 @@ if [ "$FIRST_INSTALL" -eq 1 ]; then
   systemctl enable --now "$SVC_NAME" >/dev/null 2>&1 || true
   open_firewall
 
-  if wait_health 40; then
-    IP="$(host_ip)"; IP="${IP:-127.0.0.1}"
-    cat <<EOF
+  # --- Vérifications réelles : on prouve, on ne suppose pas ---
+  TROUBLES=0
+  VICI_BROKEN=0
 
-  ✔ StrongSwan Manager est installé.
+  if wait_health 40; then
+    ok "service actif et console joignable (HTTPS :$HTTPS_PORT)"
+  else
+    TROUBLES=1
+    warn "le service ne répond pas. Diagnostic : swanmgrctl doctor"
+  fi
+
+  if verify_db; then
+    ok "base de données joignable"
+  elif [ $? -eq 2 ]; then
+    warn "connexion à la base non vérifiable ici (client psql absent)."
+  else
+    TROUBLES=1
+    warn "BASE DE DONNÉES INJOIGNABLE avec le DSN de $ENV_FILE."
+  fi
+
+  # strongSwan installé sur cette machine ? Alors il DOIT être pilotable par le service.
+  if command -v swanctl >/dev/null 2>&1; then
+    if verify_vici; then
+      ok "strongSwan piloté par VICI (testé sous l'identité « $SVC_USER »)"
+    else
+      TROUBLES=1; VICI_BROKEN=1
+      warn "STRONGSWAN EST INSTALLÉ MAIS INJOIGNABLE PAR LA CONSOLE (utilisateur « $SVC_USER »)."
+      warn "  Laissée ainsi, la console tournerait en MODE DÉMO : tunnels SIMULÉS, aucun trafic"
+      warn "  réellement chiffré. Vérifiez : systemctl status $(strongswan_unit) ;"
+      warn "  stat -c '%G %a' /run/charon.vici  (attendu : « $SVC_USER 660 »), puis swanmgrctl doctor."
+    fi
+  else
+    TROUBLES=1
+    warn "strongSwan n'est PAS installé : la console démarre en MODE DÉMO (tunnels simulés)."
+    warn "  Installez-le, ou renseignez VICI_ENDPOINTS dans $ENV_FILE pour des passerelles distantes."
+  fi
+
+  IP="$(host_ip)"; IP="${IP:-127.0.0.1}"
+  echo
+  if [ "$TROUBLES" -eq 0 ]; then
+    echo "  ✔ StrongSwan Manager est installé — tout est opérationnel."
+  else
+    echo "  ! StrongSwan Manager est installé, MAIS des points demandent votre attention (ci-dessus)."
+  fi
+  cat <<EOF
 
     Console      https://$IP:$HTTPS_PORT
     Identifiant  admin
@@ -64,8 +104,13 @@ if [ "$FIRST_INSTALL" -eq 1 ]; then
      privées seraient DÉFINITIVEMENT illisibles, même avec une sauvegarde de la base.
 
 EOF
-  else
-    warn "le service ne répond pas encore. Diagnostic : swanmgrctl doctor"
+
+  # strongSwan présent mais injoignable : on SORT EN ERREUR. Le paquet reste posé et le
+  # service configuré (rien à réinstaller), mais l'installation est signalée comme ayant
+  # échoué — plutôt que de laisser croire à une console qui pilote de vrais tunnels alors
+  # qu'elle les simule. Corrigez VICI, puis « swanmgrctl doctor ».
+  if [ "$VICI_BROKEN" -eq 1 ]; then
+    exit 1
   fi
 else
   # Mise à jour : on redémarre sur le nouveau binaire. « enable » est réaffirmé (et non un

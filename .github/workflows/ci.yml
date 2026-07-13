@@ -158,3 +158,79 @@ jobs:
       - name: Journaux en cas d'échec
         if: failure()
         run: sudo journalctl -u strongswan-manager -n 100 --no-pager || true
+
+  # Mode « depuis le dépôt cloné » : compile le front + le binaire, puis installe. Go et Node
+  # sont ici déjà présents (setup-*), donc c'est le chemin « chaîne d'outils détectée » qui est
+  # exercé ; le repli par téléchargement des chaînes officielles ne l'est pas (200 Mo en CI).
+  installer-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23', cache-dependency-path: backend/go.sum }
+
+      - name: Installer depuis les sources
+        # sudo -E env PATH : sans cela, le secure_path de sudo masquerait go et node.
+        run: sudo -E env "PATH=$PATH" ./deploy/install.sh --from-source --yes --no-strongswan
+
+      - name: La console répond, et la version vient bien des sources
+        run: |
+          set -euo pipefail
+          curl -sk -o /dev/null -w '%{http_code}\n' https://127.0.0.1:7926/healthz | grep -q 200
+          sudo swanmgrctl version   # doit refléter git describe, pas « dev »
+
+      - name: Journaux en cas d'échec
+        if: failure()
+        run: sudo journalctl -u strongswan-manager -n 100 --no-pager || true
+
+  # Installation AVEC strongSwan réel : c'est le seul test qui prouve que la console peut
+  # vraiment piloter charon (VICI testé sous l'identité du service). Si VICI ne répond pas,
+  # l'installeur DOIT échouer — ce job vérifie qu'il réussit quand tout est en place.
+  installer-vici:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/web/package-lock.json
+      - working-directory: backend/web
+        run: npm ci && npm run build
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23', cache-dependency-path: backend/go.sum }
+
+      - name: Assembler un bundle
+        run: |
+          NAME="strongswan-manager_v0.0.0-ci_linux_amd64"
+          mkdir -p "/tmp/$NAME/lib"
+          (cd backend && CGO_ENABLED=0 go build -ldflags "-X main.version=v0.0.0-ci" \
+            -o "/tmp/$NAME/strongswan-manager" ./cmd/server)
+          cp deploy/install.sh deploy/uninstall.sh deploy/swanmgrctl \
+             deploy/strongswan-manager.service "/tmp/$NAME/"
+          cp deploy/lib/common.sh "/tmp/$NAME/lib/"
+          chmod +x "/tmp/$NAME"/{install.sh,uninstall.sh,swanmgrctl}
+          echo "BUNDLE=/tmp/$NAME" >> "$GITHUB_ENV"
+
+      # Sans --no-strongswan : l'installeur pose strongSwan, ouvre le socket VICI au groupe
+      # swanmgr, et REFUSE de terminer si le service ne parvient pas à parler à charon.
+      - name: Installer avec strongSwan (VICI doit répondre)
+        run: sudo "$BUNDLE/install.sh" --yes
+
+      - name: doctor confirme que VICI est branché (et NON le mode démo)
+        run: |
+          set -euo pipefail
+          sudo swanmgrctl doctor | tee /tmp/doctor.txt || true
+          grep -q "socket VICI" /tmp/doctor.txt
+          if grep -q "MODE DÉMO" /tmp/doctor.txt; then
+            echo "la console est en mode démo alors que strongSwan est installé"; exit 1
+          fi
+
+      - name: Journaux en cas d'échec
+        if: failure()
+        run: |
+          sudo journalctl -u strongswan-manager -n 60 --no-pager || true
+          sudo journalctl -u strongswan -n 60 --no-pager || true
+          sudo ls -l /run/charon.vici || true

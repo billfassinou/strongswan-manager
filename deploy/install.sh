@@ -10,7 +10,14 @@
 #      Le script télécharge le bundle de la dernière version, en vérifie l'intégrité,
 #      puis se relance depuis celui-ci.
 #
-#   2. HORS LIGNE — depuis le bundle déjà téléchargé (air-gap) :
+#   2. DEPUIS LES SOURCES — après avoir cloné le dépôt :
+#      git clone https://github.com/billfassinou/strongswan-manager.git
+#      cd strongswan-manager && sudo ./deploy/install.sh --from-source
+#      Compile l'interface web puis le binaire, et installe le résultat exactement comme le
+#      ferait le bundle. Si Go (≥ 1.23) ou Node manquent, les chaînes OFFICIELLES sont
+#      récupérées dans un dossier temporaire — rien n'est installé durablement.
+#
+#   3. HORS LIGNE — depuis le bundle déjà téléchargé (air-gap) :
 #      tar xzf strongswan-manager_vX.Y.Z_linux_amd64.tar.gz
 #      cd strongswan-manager_vX.Y.Z_linux_amd64 && sudo ./install.sh
 #      Aucun accès réseau n'est alors nécessaire — sauf pour installer PostgreSQL et
@@ -37,14 +44,17 @@ REPO="${REPO:-billfassinou/strongswan-manager}"
 ASSUME_YES="${ASSUME_YES:-0}"
 WITH_STRONGSWAN=1
 SKIP_DEPS=0
+FROM_SOURCE=0
 VERSION="latest"
 
 usage() {
   cat <<'EOF'
 Usage : install.sh [options]
 
+  --from-source        Compile depuis le dépôt cloné, puis installe (voir plus haut).
+                       Go et Node sont récupérés automatiquement s'ils manquent.
   --version vX.Y.Z     Installe une version précise (défaut : la dernière).
-                       Ignoré si le script est lancé depuis un bundle.
+                       Ignoré depuis un bundle ou avec --from-source.
   --no-strongswan      N'installe pas strongSwan (console pilotant des passerelles distantes)
   --skip-deps          N'installe aucun paquet (PostgreSQL/strongSwan supposés présents).
                        C'est l'option des installations hors ligne.
@@ -56,6 +66,7 @@ EOF
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --from-source) FROM_SOURCE=1; shift ;;
     --version) VERSION="$2"; shift 2 ;;
     --no-strongswan) WITH_STRONGSWAN=0; shift ;;
     --skip-deps) SKIP_DEPS=1; shift ;;
@@ -76,6 +87,28 @@ SELF="${BASH_SOURCE[0]:-}"
 SELF_DIR=""
 if [ -n "$SELF" ] && [ -f "$SELF" ]; then
   SELF_DIR="$(cd "$(dirname "$SELF")" && pwd)"
+fi
+
+# --- Mode « depuis les sources » --------------------------------------------
+#
+# On compile, puis on reconstitue un bundle : la suite est alors STRICTEMENT le même chemin de
+# code que l'installation par binaire. Un seul chemin à maintenir, un seul à tester.
+if [ "$FROM_SOURCE" -eq 1 ]; then
+  [ -n "$SELF_DIR" ] || { printf '✘ --from-source exige de lancer le script depuis le dépôt cloné (./deploy/install.sh), pas via un pipe.\n' >&2; exit 1; }
+  REPO_ROOT="$(cd "$SELF_DIR/.." && pwd)"
+  [ -f "$REPO_ROOT/deploy/lib/common.sh" ] || { printf '✘ dépôt introuvable depuis %s\n' "$SELF_DIR" >&2; exit 1; }
+
+  # shellcheck source=lib/common.sh
+  . "$REPO_ROOT/deploy/lib/common.sh"
+  need_root
+  command -v git  >/dev/null 2>&1 || warn "git absent : la version du binaire sera « dev »."
+  command -v curl >/dev/null 2>&1 || die "curl est requis pour récupérer la chaîne d'outils."
+  command -v tar  >/dev/null 2>&1 || die "tar est requis."
+
+  info "compilation depuis les sources ($REPO_ROOT)"
+  build_from_source "$REPO_ROOT"
+  SELF_DIR="$SOURCE_STAGE"
+  SWANMGR_VERSION="$("$SELF_DIR/strongswan-manager" --version 2>/dev/null || echo dev)"
 fi
 
 if [ -z "$SELF_DIR" ] || [ ! -f "$SELF_DIR/lib/common.sh" ] || [ ! -x "$SELF_DIR/strongswan-manager" ]; then
@@ -317,19 +350,82 @@ systemctl enable --now "$SVC_NAME" >/dev/null
 
 open_firewall
 
-# --- Vérification -----------------------------------------------------------
+# --- Vérification : on prouve, on ne suppose pas ------------------------------
 
-info "vérification"
-wait_health 40 || die "le service ne répond pas.
+echo
+info "vérification de l'installation"
+
+TROUBLES=0
+
+# 1. Le service répond.
+if wait_health 40; then
+  ok "service actif et console joignable (HTTPS :$HTTPS_PORT)"
+else
+  die "le service ne répond pas.
   Diagnostic : swanmgrctl doctor
   Journaux   : journalctl -u $SVC_NAME -n 50 --no-pager"
+fi
+
+# 2. La base : on ÉTABLIT la connexion avec le DSN configuré.
+if verify_db; then
+  ok "base de données joignable ($(psql "$(env_get DATABASE_URL)" -tAc 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo '?') migrations appliquées)"
+else
+  rc=$?
+  if [ "$rc" -eq 2 ]; then
+    warn "connexion à la base non vérifiable ici (client psql absent) — le service, lui, a démarré."
+  else
+    TROUBLES=1
+    warn "BASE DE DONNÉES INJOIGNABLE avec le DSN de $ENV_FILE."
+    warn "  Vérifiez DATABASE_URL, puis : systemctl restart $SVC_NAME"
+  fi
+fi
+
+# 3. strongSwan : on vérifie que l'utilisateur DU SERVICE parle réellement à charon.
+#    Un test en root ne prouverait rien — c'est « swanmgr » qui doit y arriver.
+if [ "$WITH_STRONGSWAN" -eq 1 ]; then
+  if verify_vici; then
+    ok "strongSwan piloté par VICI : $(runuser -u "$SVC_USER" -- swanctl --version 2>/dev/null || swanctl --version 2>/dev/null)"
+  else
+    # Échec dur, et assumé : une console qui affiche des tunnels SIMULÉS en croyant piloter
+    # de vrais tunnels est plus dangereuse qu'une installation qui s'arrête.
+    SW_UNIT="$(strongswan_unit)"
+    die "STRONGSWAN EST INSTALLÉ MAIS INJOIGNABLE PAR LA CONSOLE.
+
+  L'utilisateur du service (« $SVC_USER ») ne parvient pas à parler à charon via VICI.
+  Laissée ainsi, la console démarrerait en MODE DÉMO : elle afficherait des tunnels
+  SIMULÉS, sans qu'aucun trafic ne soit réellement chiffré. L'installation s'arrête ici.
+
+  À vérifier, dans cet ordre :
+    1. charon tourne-t-il ?          systemctl status $SW_UNIT
+    2. le socket existe-t-il ?       ls -l /run/charon.vici
+    3. est-il ouvert au groupe ?     stat -c '%G %a' /run/charon.vici   → « $SVC_USER 660 »
+       (c'est le rôle du drop-in /etc/systemd/system/$SW_UNIT.d/10-vici-swanmgr.conf)
+    4. le plugin vici est-il chargé ? $SW_UNIT doit lister « vici » dans ses plugins
+
+  Le service et la configuration SONT en place : corrigez le point ci-dessus, puis
+  relancez la vérification avec «  swanmgrctl doctor  ». Rien n'est à réinstaller.
+
+  Vous pilotez des passerelles DISTANTES et pas de charon local ? Relancez avec
+  --no-strongswan, et renseignez VICI_ENDPOINTS dans $ENV_FILE."
+  fi
+else
+  TROUBLES=1
+  warn "MODE DÉMO : aucune passerelle strongSwan locale n'est pilotée (--no-strongswan)."
+  warn "  Les tunnels affichés seront SIMULÉS. Renseignez VICI_ENDPOINTS dans $ENV_FILE"
+  warn "  pour piloter de vraies passerelles, puis : systemctl restart $SVC_NAME"
+fi
 
 IP="$(host_ip)"; IP="${IP:-127.0.0.1}"
 PASS="$(env_get SEED_ADMIN_PASSWORD || true)"
 
-cat <<EOF
+echo
+if [ "$TROUBLES" -eq 0 ]; then
+  echo "  ✔ Tout est opérationnel."
+else
+  echo "  ! Installation terminée, MAIS des points demandent votre attention (ci-dessus)."
+fi
 
-  ✔ StrongSwan Manager est installé et démarré.
+cat <<EOF
 
     Console    https://$IP:$HTTPS_PORT
     Identifiant admin

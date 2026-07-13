@@ -317,6 +317,124 @@ remove_vici_dropin() {
   systemctl restart strongswan 2>/dev/null || true
 }
 
+# --- Vérifications réelles (base, VICI) --------------------------------------
+#
+# Ces deux fonctions ne se contentent pas de constater qu'un paquet est installé : elles
+# établissent la connexion, comme le fera l'application. C'est la seule preuve qui vaille.
+
+# verify_db → 0 si la base répond avec le DSN configuré.
+verify_db() {
+  local url
+  url="$(env_get DATABASE_URL || true)"
+  [ -n "$url" ] || return 1
+  command -v psql >/dev/null 2>&1 || return 2   # 2 = indéterminé (pas d'outil pour tester)
+  psql "$url" -tAc 'SELECT 1' >/dev/null 2>&1
+}
+
+# verify_vici → 0 si l'UTILISATEUR DU SERVICE peut réellement parler à charon.
+# On teste sous l'identité « swanmgr », pas en root : c'est exactement ce que fera la
+# console. Un test en root passerait alors que le service, lui, échouerait.
+verify_vici() {
+  local sock
+  sock="$(vici_socket || true)"
+  [ -n "$sock" ] || return 1
+  command -v swanctl >/dev/null 2>&1 || return 1
+  if command -v runuser >/dev/null 2>&1; then
+    runuser -u "$SVC_USER" -- swanctl --version >/dev/null 2>&1
+  else
+    su -s /bin/sh -c 'swanctl --version' "$SVC_USER" >/dev/null 2>&1
+  fi
+}
+
+# --- Chaîne d'outils de compilation (mode « depuis les sources ») -------------
+
+GO_VERSION="${GO_VERSION:-1.23.5}"
+NODE_VERSION="${NODE_VERSION:-22.11.0}"
+
+# Go ≥ 1.23 est un plancher dur (le module le déclare).
+go_ok() {
+  command -v go >/dev/null 2>&1 || return 1
+  go version 2>/dev/null | awk '{print $3}' | sed 's/^go//' \
+    | awk -F. '{exit !($1 > 1 || ($1 == 1 && $2 >= 23))}'
+}
+
+node_ok() {
+  command -v node >/dev/null 2>&1 || return 1
+  node -v 2>/dev/null | sed 's/^v//' | awk -F. '{exit !($1 >= 20)}'
+}
+
+# ensure_toolchain RÉPERTOIRE — garantit go et node dans le PATH.
+# Les distributions livrent souvent un Go trop ancien (AlmaLinux 9 : < 1.23) : plutôt que
+# d'échouer ou d'installer des paquets système, on récupère les archives OFFICIELLES dans un
+# répertoire temporaire. Rien n'est installé durablement sur la machine.
+ensure_toolchain() {
+  local tdir="$1" arch garch narch
+  arch="$(detect_arch)"
+  garch="$arch"                                    # go : linux-amd64 / linux-arm64
+  case "$arch" in amd64) narch=x64 ;; *) narch=arm64 ;; esac
+
+  if go_ok; then
+    ok "Go détecté : $(go version | awk '{print $3}')"
+  else
+    info "Go ≥ 1.23 absent ou trop ancien — récupération de la chaîne officielle go$GO_VERSION"
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${garch}.tar.gz" -o "$tdir/go.tgz" \
+      || die "téléchargement de Go échoué (réseau ?). Installez Go ≥ 1.23 vous-même, ou utilisez l'installation par binaire."
+    tar -xzf "$tdir/go.tgz" -C "$tdir" || die "extraction de Go échouée."
+    export GOROOT="$tdir/go"
+    export PATH="$tdir/go/bin:$PATH"
+    ok "Go $GO_VERSION prêt (temporaire, rien n'est installé sur le système)"
+  fi
+
+  if node_ok; then
+    ok "Node détecté : $(node -v)"
+  else
+    info "Node ≥ 20 absent — récupération de la chaîne officielle v$NODE_VERSION"
+    command -v xz >/dev/null 2>&1 \
+      || die "xz est requis pour décompresser Node (dnf install xz / apt install xz-utils)."
+    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${narch}.tar.xz" \
+      -o "$tdir/node.txz" || die "téléchargement de Node échoué (réseau ?)."
+    tar -xJf "$tdir/node.txz" -C "$tdir" || die "extraction de Node échouée."
+    export PATH="$tdir/node-v${NODE_VERSION}-linux-${narch}/bin:$PATH"
+    ok "Node v$NODE_VERSION prêt (temporaire)"
+  fi
+}
+
+# build_from_source RACINE_DU_DÉPÔT — compile et prépare un bundle ; pose SOURCE_STAGE.
+#
+# Le front DOIT être construit avant le binaire : la SPA est embarquée par //go:embed, et
+# sans backend/web/dist le « go build » échoue.
+SOURCE_STAGE=""
+build_from_source() {
+  local root="$1" stage tools ver
+  [ -f "$root/backend/go.mod" ] || die "dépôt introuvable : lancez ce script depuis le dépôt cloné (deploy/install.sh --from-source)."
+
+  stage="$(make_tmpdir)"
+  tools="$(make_tmpdir)"
+  ensure_toolchain "$tools"
+
+  info "compilation de l'interface web (embarquée dans le binaire)"
+  ( cd "$root/backend/web" && npm ci --no-audit --no-fund >/dev/null 2>&1 && npm run build >/dev/null 2>&1 ) \
+    || die "échec de la compilation de l'interface web (npm). Relancez à la main : cd backend/web && npm ci && npm run build"
+  ok "interface web compilée"
+
+  ver="$(git -C "$root" describe --tags --always --dirty 2>/dev/null || echo dev)"
+  info "compilation du binaire ($ver)"
+  ( cd "$root/backend" && CGO_ENABLED=0 go build -trimpath \
+      -ldflags "-s -w -X main.version=$ver" -o "$stage/strongswan-manager" ./cmd/server >/dev/null ) \
+    || die "échec de la compilation du binaire (go build)."
+  chmod +x "$stage/strongswan-manager"
+  ok "binaire compilé : $ver"
+
+  # On reconstitue un bundle : la suite de l'installation est alors STRICTEMENT identique à
+  # celle du binaire téléchargé — un seul chemin de code à maintenir et à tester.
+  install -d -m 0755 "$stage/lib"
+  install -m 0644 "$root/deploy/lib/common.sh" "$stage/lib/common.sh"
+  install -m 0644 "$root/deploy/strongswan-manager.service" "$stage/"
+  install -m 0755 "$root/deploy/install.sh" "$root/deploy/uninstall.sh" "$root/deploy/swanmgrctl" "$stage/"
+  # shellcheck disable=SC2034  # consommé par install.sh, qui source ce fichier
+  SOURCE_STAGE="$stage"
+}
+
 # --- Pare-feu ----------------------------------------------------------------
 
 open_firewall() {
