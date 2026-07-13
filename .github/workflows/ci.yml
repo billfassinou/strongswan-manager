@@ -149,6 +149,49 @@ jobs:
           printf 'restaurer\n' | sudo swanmgrctl restore "$ARCHIVE"
           curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
 
+      # SECRETS_KEY est la seule chose irremplaçable du produit. « restore » doit REFUSER une
+      # archive dont la clé ne correspond pas (sinon la base restaurée serait illisible et le
+      # serveur ne démarrerait plus), et --adopt-key doit être le seul moyen de passer outre.
+      - name: restore refuse une clé qui ne correspond pas, et --adopt-key répare
+        run: |
+          set -euo pipefail
+          ARCHIVE="$(sudo swanmgrctl backup | tail -1)"
+
+          # On simule la perte de la clé (machine réinstallée, fichier env régénéré).
+          sudo sed -i "s|^SECRETS_KEY=.*|SECRETS_KEY=$(openssl rand -hex 32)|" \
+            /etc/strongswan-manager/strongswan-manager.env
+
+          if printf 'restaurer\n' | sudo swanmgrctl restore "$ARCHIVE"; then
+            echo "restore a ACCEPTÉ une archive dont la clé ne correspond pas : la base serait illisible"
+            exit 1
+          fi
+          echo "✔ restore a refusé (attendu)"
+
+          printf 'restaurer\n' | sudo swanmgrctl restore "$ARCHIVE" --adopt-key
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+
+      # upgrade remplace le binaire et redémarre : c'est la commande la plus destructrice.
+      # Son retour arrière automatique n'avait jamais tourné.
+      - name: swanmgrctl upgrade, puis rollback automatique sur binaire cassé
+        run: |
+          set -euo pipefail
+          sudo swanmgrctl upgrade --bundle "$BUNDLE"
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+
+          # Un binaire qui ne démarre pas : l'upgrade doit échouer ET restaurer le précédent.
+          mkdir -p /tmp/bad
+          printf '#!/bin/sh\nexit 1\n' > /tmp/bad/strongswan-manager
+          chmod +x /tmp/bad/strongswan-manager
+          if sudo swanmgrctl upgrade --bundle /tmp/bad; then
+            echo "l'upgrade vers un binaire cassé a « réussi » : le garde-fou est mort"
+            exit 1
+          fi
+          echo "✔ l'upgrade a échoué (attendu)"
+
+          # …et le service doit être revenu tout seul sur l'ancien binaire.
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+          sudo swanmgrctl version | grep -q 'v0.0.0-ci'
+
       - name: Réinstallation idempotente (secrets conservés)
         run: |
           set -euo pipefail
@@ -156,6 +199,13 @@ jobs:
           sudo "$BUNDLE/install.sh" --yes --no-strongswan
           AFTER="$(sudo sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
           [ "$BEFORE" = "$AFTER" ] || { echo "SECRETS_KEY a été régénérée : les données seraient perdues"; exit 1; }
+
+      # --skip-deps est LE chemin annoncé pour l'air-gap : il n'installe aucun paquet.
+      - name: Installation --skip-deps (chemin air-gap)
+        run: |
+          set -euo pipefail
+          sudo "$BUNDLE/install.sh" --yes --no-strongswan --skip-deps
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
 
       - name: Désinstallation
         run: |
@@ -235,9 +285,93 @@ jobs:
             echo "la console est en mode démo alors que strongSwan est installé"; exit 1
           fi
 
+      # Le comportement le plus fortement revendiqué du produit : strongSwan présent mais
+      # injoignable ⇒ l'installeur REFUSE de terminer, plutôt que de livrer une console qui
+      # affiche des tunnels simulés en croyant piloter de vrais tunnels. Seul le cas passant
+      # était testé ; voici le cas d'échec.
+      - name: VICI injoignable ⇒ l'installeur DOIT échouer
+        run: |
+          set -uo pipefail
+          sudo /usr/share/strongswan-manager/uninstall.sh
+
+          # charon ne pourra plus démarrer : le socket VICI n'existera pas.
+          sudo systemctl stop strongswan.service || true
+          sudo systemctl mask strongswan.service
+
+          if sudo "$BUNDLE/install.sh" --yes; then
+            echo "L'INSTALLEUR A RÉUSSI alors que VICI est injoignable : le garde-fou est mort."
+            sudo systemctl unmask strongswan.service
+            exit 1
+          fi
+          echo "✔ l'installeur a refusé de terminer (attendu)"
+          sudo systemctl unmask strongswan.service
+
       - name: Journaux en cas d'échec
         if: failure()
         run: |
           sudo journalctl -u strongswan-manager -n 60 --no-pager || true
           sudo journalctl -u strongswan -n 60 --no-pager || true
           sudo ls -l /run/charon.vici || true
+
+  # Les scriptlets .deb/.rpm (postinstall, preremove, postremove) sont publiés à chaque
+  # release et n'étaient exécutés par AUCUN test : ~200 lignes livrées sur la foi d'une
+  # lecture de doc. Ce job installe un vrai paquet et déroule son cycle de vie.
+  installer-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/web/package-lock.json
+      - working-directory: backend/web
+        run: npm ci && npm run build
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.23', cache-dependency-path: backend/go.sum }
+
+      - name: Construire le .deb (comme la release)
+        run: |
+          set -euo pipefail
+          mkdir -p backend/dist/pkg
+          (cd backend && CGO_ENABLED=0 go build -ldflags "-X main.version=v0.0.0-ci" \
+            -o dist/pkg/strongswan-manager ./cmd/server)
+          curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_Linux_x86_64.tar.gz \
+            | tar xz -C /tmp nfpm
+          GOARCH=amd64 SEMVER=0.0.0 /tmp/nfpm package -f deploy/nfpm.yaml -p deb -t /tmp/
+          echo "DEB=$(ls /tmp/*.deb)" >> "$GITHUB_ENV"
+
+      - name: Installer le paquet
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$DEB"
+          sudo systemctl is-active --quiet strongswan-manager
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+          # /usr/bin, sinon « sudo swanmgrctl » serait introuvable (secure_path).
+          sudo swanmgrctl version
+
+      - name: Mise à jour du paquet — secrets et base conservés, service toujours actif
+        run: |
+          set -euo pipefail
+          BEFORE="$(sudo sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --reinstall "$DEB"
+          AFTER="$(sudo sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
+          [ "$BEFORE" = "$AFTER" ] || { echo "SECRETS_KEY régénérée à la mise à jour : données perdues"; exit 1; }
+          # Le piège des scriptlets : un prerm qui désactive l'unité la laisse morte au boot.
+          sudo systemctl is-enabled --quiet strongswan-manager \
+            || { echo "le service n'est plus activé au démarrage après une mise à jour"; exit 1; }
+          sleep 3
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+
+      - name: Retrait du paquet — la base et la configuration SURVIVENT
+        run: |
+          set -euo pipefail
+          sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq strongswan-manager
+          ! systemctl is-active --quiet strongswan-manager
+          sudo test -f /etc/strongswan-manager/strongswan-manager.env
+          sudo -u postgres psql -lqt | cut -d\| -f1 | grep -qw swan
+
+      - name: Journaux en cas d'échec
+        if: failure()
+        run: sudo journalctl -u strongswan-manager -n 100 --no-pager || true
