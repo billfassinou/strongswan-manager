@@ -225,16 +225,23 @@ else
   command -v tar  >/dev/null 2>&1 || pkgs="$pkgs tar"
 
   if [ "$PKG" = dnf ]; then
+    # Un dépôt tiers cassé (typiquement un dépôt qui pointe encore sur el/8 depuis un el/9)
+    # fait échouer TOUT « dnf install », même quand le paquet demandé n'en dépend en rien :
+    # dnf refuse d'agir s'il ne peut pas rafraîchir un dépôt activé. On lui demande donc
+    # d'ignorer les dépôts injoignables. Si le dépôt manquant était réellement nécessaire,
+    # l'erreur qui suivra sera explicite (paquet introuvable), pas un échec de métadonnées.
+    DNF="dnf -y --setopt=*.skip_if_unavailable=1"
+
     pg_available || pkgs="$pkgs postgresql-server postgresql-contrib"
     if [ "$WITH_STRONGSWAN" -eq 1 ] && ! command -v swanctl >/dev/null 2>&1; then
       # strongSwan n'est PAS dans les dépôts de base de RHEL/AlmaLinux/Rocky : il vient d'EPEL.
       # Sans ce dépôt, « dnf install strongswan » échoue (vérifié sur AlmaLinux 9).
-      if ! dnf -q list strongswan >/dev/null 2>&1; then
+      if ! $DNF -q list strongswan >/dev/null 2>&1; then
         info "activation du dépôt EPEL (strongSwan n'est pas dans les dépôts de base)"
-        dnf -y install epel-release >/dev/null 2>&1 \
-          || dnf -y install "https://dl.fedoraproject.org/pub/epel/epel-release-latest-$(rpm -E %rhel).noarch.rpm" >/dev/null 2>&1 \
+        $DNF install epel-release >/dev/null 2>&1 \
+          || $DNF install "https://dl.fedoraproject.org/pub/epel/epel-release-latest-$(rpm -E %rhel).noarch.rpm" >/dev/null 2>&1 \
           || die "impossible d'activer EPEL. Relancez avec --no-strongswan, ou installez strongSwan vous-même."
-        dnf -q makecache >/dev/null 2>&1 || true
+        $DNF -q makecache >/dev/null 2>&1 || true
       fi
       pkgs="$pkgs strongswan"
     fi
@@ -250,12 +257,25 @@ else
     info "installation des paquets :$pkgs"
     if [ "$PKG" = dnf ]; then
       # shellcheck disable=SC2086
-      dnf -y install $pkgs >/dev/null || die "installation des paquets échouée :$pkgs"
+      $DNF install $pkgs >/dev/null || die "installation des paquets échouée :$pkgs
+
+  Si l'erreur mentionne un dépôt tiers (métadonnées, repomd.xml, « All mirrors were tried »),
+  ce dépôt est cassé sur cette machine et bloque dnf, indépendamment de StrongSwan Manager.
+  Désactivez-le, puis relancez :
+      dnf repolist                                  # repérer le dépôt fautif
+      dnf config-manager --set-disabled <son-nom>
+
+  Ou installez PostgreSQL vous-même et relancez avec --skip-deps."
     else
       export DEBIAN_FRONTEND=noninteractive
-      apt-get update -qq >/dev/null
+      # Une source apt cassée ne doit pas empêcher l'installation si les listes en cache
+      # suffisent : on avertit plutôt que d'abandonner.
+      apt-get update -qq >/dev/null 2>&1 || warn "« apt-get update » a échoué (source cassée ?) — on tente avec les listes en cache."
       # shellcheck disable=SC2086
-      apt-get install -y -qq $pkgs >/dev/null || die "installation des paquets échouée :$pkgs"
+      apt-get install -y -qq $pkgs >/dev/null || die "installation des paquets échouée :$pkgs
+
+  Si l'erreur vient d'une source apt tierce cassée, corrigez /etc/apt/sources.list.d/,
+  ou installez PostgreSQL vous-même et relancez avec --skip-deps."
     fi
     ok "paquets installés"
   fi
