@@ -118,6 +118,13 @@ jobs:
             -H "Authorization: Bearer $TOK")"
           [ "$CODE" = 403 ] || { echo "l'API est ouverte avec le mot de passe d'usine (HTTP $CODE)"; exit 1; }
 
+          # Le WebSocket diffuse l'état temps réel des SA. Il est monté hors du middleware :
+          # sans ces deux assertions, le verrou 403 pouvait être contourné par /ws — et l'a été.
+          CODE="$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/api/v1/ws)"
+          [ "$CODE" = 401 ] || { echo "/ws accepte une connexion SANS jeton (HTTP $CODE)"; exit 1; }
+          CODE="$(curl -sk -o /dev/null -w '%{http_code}' "https://127.0.0.1:7926/api/v1/ws?token=$TOK")"
+          [ "$CODE" = 403 ] || { echo "/ws est ouvert avec le mot de passe d'usine (HTTP $CODE)"; exit 1; }
+
           # Après changement, l'API s'ouvre.
           NEW="$(curl -sk https://127.0.0.1:7926/api/v1/me/password -H "Authorization: Bearer $TOK" \
             -H 'Content-Type: application/json' \

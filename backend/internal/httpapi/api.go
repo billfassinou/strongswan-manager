@@ -150,11 +150,21 @@ func (a *API) handleDocs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
-	if tok := r.URL.Query().Get("token"); tok != "" {
-		if _, err := a.Auth.Parse(tok); err != nil {
-			writeError(w, r, http.StatusUnauthorized, "unauthorized", "jeton invalide")
-			return
-		}
+	// Le navigateur ne peut pas poser d'en-tête sur un WebSocket : le jeton passe par ?token=.
+	// Il est OBLIGATOIRE. Ne le vérifier que lorsqu'il est présent laissait le flux temps réel
+	// des SA ouvert à quiconque se connectait sans jeton.
+	p, err := a.Auth.Parse(r.URL.Query().Get("token"))
+	if err != nil {
+		writeError(w, r, http.StatusUnauthorized, "unauthorized", "jeton absent ou invalide")
+		return
+	}
+	// Ce handler est monté hors du groupe protégé (il n'y a pas d'en-tête Authorization à
+	// lire) : le verrou du mot de passe initial doit donc être réappliqué ICI, sans quoi il
+	// ne couvrirait pas toute l'API — contrairement à ce que le reste du code affirme.
+	if p.MustChangePassword {
+		writeError(w, r, http.StatusForbidden, "password_change_required",
+			"mot de passe initial : changez-le (POST /api/v1/me/password) avant d'utiliser la console")
+		return
 	}
 	a.Hub.Handler(w, r)
 }

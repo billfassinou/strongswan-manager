@@ -468,3 +468,44 @@ func TestChangePasswordUnlocksTheAPI(t *testing.T) {
 		t.Fatalf("login avec l'ancien mot de passe = %d, attendu 401", rec.Code)
 	}
 }
+
+// --- WebSocket : le jeton est OBLIGATOIRE, et le verrou du mot de passe s'y applique ---
+//
+// Le WebSocket diffuse l'état temps réel des SA. Il était monté hors du middleware et ne
+// vérifiait le jeton que s'il était présent : sans jeton, n'importe qui pouvait s'y brancher.
+
+func TestWSRequiresToken(t *testing.T) {
+	h := newHarness(t)
+	if rec := h.do(http.MethodGet, "/api/v1/ws", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/ws sans jeton = %d, attendu 401 (l'état des tunnels ne doit pas fuiter)", rec.Code)
+	}
+	rec := httptest.NewRecorder()
+	h.router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/ws?token=nimportequoi", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/ws avec un jeton invalide = %d, attendu 401", rec.Code)
+	}
+}
+
+func TestWSRejectsSeededAccount(t *testing.T) {
+	h := newHarness(t)
+	tok := h.seeded(t, "fresh", "motdepasseinstall")
+
+	rec := httptest.NewRecorder()
+	h.router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/ws?token="+tok, nil))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("/ws avec le mot de passe d'usine = %d, attendu 403 — le verrou doit couvrir AUSSI le WebSocket", rec.Code)
+	}
+}
+
+func TestWSAcceptsValidToken(t *testing.T) {
+	h := newHarness(t)
+	tok := h.token(domain.RoleOperator)
+
+	rec := httptest.NewRecorder()
+	h.router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/ws?token="+tok, nil))
+	// httptest n'est pas un vrai client WebSocket : la poignée de main échoue (426). Ce qui
+	// compte, c'est que l'AUTHENTIFICATION soit franchie.
+	if rec.Code == http.StatusUnauthorized || rec.Code == http.StatusForbidden {
+		t.Fatalf("/ws avec un jeton valide = %d : l'authentification rejette à tort", rec.Code)
+	}
+}
