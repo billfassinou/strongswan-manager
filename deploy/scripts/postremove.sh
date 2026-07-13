@@ -22,12 +22,17 @@ case "${1:-}" in
   *) exit 0 ;;
 esac
 
-# Le drop-in posé sur strongswan.service n'a plus lieu d'être : charon n'a plus à ouvrir son
+# Le drop-in posé sur l'unité de charon n'a plus lieu d'être : celui-ci n'a plus à ouvrir son
 # socket au groupe swanmgr.
-rm -f /etc/systemd/system/strongswan.service.d/10-vici-swanmgr.conf \
-      /etc/systemd/system/strongswan-swanctl.service.d/10-vici-swanmgr.conf
-rmdir /etc/systemd/system/strongswan.service.d \
-      /etc/systemd/system/strongswan-swanctl.service.d 2>/dev/null || true
+#
+# Volontairement AUTONOME : ce scriptlet s'exécute APRÈS que le gestionnaire de paquets a
+# supprimé les fichiers du paquet — /usr/share/strongswan-manager/lib/common.sh n'existe donc
+# peut-être déjà plus. On ne peut pas le sourcer ici. La liste doit rester en phase avec
+# STRONGSWAN_UNITS dans lib/common.sh.
+for u in strongswan.service strongswan-swanctl.service strongswan-starter.service; do
+  rm -f "/etc/systemd/system/${u}.d/10-vici-swanmgr.conf"
+  rmdir "/etc/systemd/system/${u}.d" 2>/dev/null || true
+done
 rm -rf /etc/systemd/system/strongswan-manager.service.d
 
 systemctl daemon-reload >/dev/null 2>&1 || true

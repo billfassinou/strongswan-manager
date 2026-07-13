@@ -9,25 +9,31 @@
 # configuration existe déjà. Elle déchiffre les secrets, la clé de la CA et la clé du
 # certificat TLS ; la perdre rend la base définitivement illisible.
 
-# --- Emplacements (surchargeables pour les tests) ----------------------------
+# --- Emplacements -------------------------------------------------------------
+#
+# REPO, BIN et UNIT ne sont pas lus ici, mais par les scripts qui SOURCENT ce fichier
+# (install.sh, swanmgrctl, uninstall.sh, les scriptlets de paquet) — d'où les directives.
 
-REPO="${REPO:-billfassinou/strongswan-manager}"
+# shellcheck disable=SC2034
+REPO=billfassinou/strongswan-manager
 # /usr/bin, et non /usr/local/bin : c'est un service système (unité systemd, config dans
 # /etc, utilisateur dédié), et surtout le « secure_path » de sudo sur RHEL/AlmaLinux
 # n'inclut PAS /usr/local/bin — « sudo swanmgrctl » y serait introuvable.
-BIN_DIR="${BIN_DIR:-/usr/bin}"
-BIN="${BIN:-$BIN_DIR/strongswan-manager}"
-SHARE_DIR="${SHARE_DIR:-/usr/share/strongswan-manager}"
-ETC_DIR="${ETC_DIR:-/etc/strongswan-manager}"
-ENV_FILE="${ENV_FILE:-$ETC_DIR/strongswan-manager.env}"
-STATE_DIR="${STATE_DIR:-/var/lib/strongswan-manager}"
-SVC_USER="${SVC_USER:-swanmgr}"
-SVC_NAME="${SVC_NAME:-strongswan-manager}"
-UNIT="${UNIT:-/etc/systemd/system/$SVC_NAME.service}"
-DB_NAME="${DB_NAME:-swan}"
-DB_USER="${DB_USER:-swan}"
-HTTPS_PORT="${HTTPS_PORT:-7926}"
-HTTP_PORT="${HTTP_PORT:-7927}"
+BIN_DIR=/usr/bin
+# shellcheck disable=SC2034
+BIN="$BIN_DIR/strongswan-manager"
+SHARE_DIR=/usr/share/strongswan-manager
+ETC_DIR=/etc/strongswan-manager
+ENV_FILE="$ETC_DIR/strongswan-manager.env"
+STATE_DIR=/var/lib/strongswan-manager
+SVC_USER=swanmgr
+SVC_NAME=strongswan-manager
+# shellcheck disable=SC2034
+UNIT="/etc/systemd/system/$SVC_NAME.service"
+DB_NAME=swan
+DB_USER=swan
+HTTPS_PORT=7926
+HTTP_PORT=7927
 
 # --- Sortie -----------------------------------------------------------------
 
@@ -168,7 +174,7 @@ provision_db() {
   if su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1; then
     if [ -f "$ENV_FILE" ]; then
       pass="$(env_get DATABASE_URL | sed -n "s|^postgres://$DB_USER:\([^@]*\)@.*|\1|p")"
-      [ -n "$pass" ] || warn "mot de passe de la base illisible dans $ENV_FILE"
+      [ -n "$pass" ] || warn "mot de passe de la base illisible dans $ENV_FILE" >&2
     else
       pass="$(random_hex 24)"
       su - postgres -c "psql -c \"ALTER ROLE $DB_USER WITH PASSWORD '$pass'\"" >/dev/null
@@ -185,14 +191,6 @@ provision_db() {
 
 # --- Génération de la configuration -----------------------------------------
 
-default_sans() {
-  local host_ip sans
-  host_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  sans="localhost,127.0.0.1,::1,$(hostname -f 2>/dev/null || hostname)"
-  [ -n "$host_ip" ] && sans="$sans,$host_ip"
-  printf '%s' "$sans"
-}
-
 host_ip() { hostname -I 2>/dev/null | awk '{print $1}'; }
 
 # write_env_file DB_PASS WITH_VICI(0|1)
@@ -208,7 +206,8 @@ write_env_file() {
   fi
 
   ip="$(host_ip)"; ip="${ip:-127.0.0.1}"
-  sans="$(default_sans)"
+  sans="localhost,127.0.0.1,::1,$(hostname -f 2>/dev/null || hostname)"
+  [ -n "$(host_ip)" ] && sans="$sans,$(host_ip)"
   admin_pass="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-16)"
 
   local old_umask; old_umask="$(umask)"
@@ -265,6 +264,12 @@ EOF
 
 # --- Socket VICI -------------------------------------------------------------
 
+# Les unités systemd susceptibles de faire tourner charon, par ordre de préférence
+# (strongswan.service = charon-systemd, le chemin moderne ; les autres sont de l'héritage).
+# UNE SEULE liste : c'est d'avoir oublié la troisième dans le nettoyage qui laissait un
+# drop-in orphelin survivre à la désinstallation.
+STRONGSWAN_UNITS="strongswan.service strongswan-swanctl.service strongswan-starter.service"
+
 # strongswan_unit → l'unité qui fait RÉELLEMENT tourner charon (celle qui crée le socket VICI).
 #
 # Piège : plusieurs unités peuvent coexister (strongswan.service = charon-systemd, le chemin
@@ -275,12 +280,12 @@ EOF
 # strongswan.service.
 strongswan_unit() {
   local u
-  for u in strongswan.service strongswan-swanctl.service strongswan-starter.service; do
+  for u in $STRONGSWAN_UNITS; do
     if systemctl is-active --quiet "$u" 2>/dev/null; then
       printf '%s' "$u"; return 0
     fi
   done
-  for u in strongswan.service strongswan-swanctl.service; do
+  for u in $STRONGSWAN_UNITS; do
     if systemctl list-unit-files "$u" --no-legend 2>/dev/null | grep -q .; then
       printf '%s' "$u"; return 0
     fi
@@ -304,7 +309,7 @@ install_vici_dropin() {
 
   # Purge un drop-in laissé sur une AUTRE unité (une version antérieure pouvait se tromper
   # d'unité) : sinon il resterait à traîner, inerte et trompeur.
-  for other in strongswan.service strongswan-swanctl.service strongswan-starter.service; do
+  for other in $STRONGSWAN_UNITS; do
     [ "$other" = "$sw_unit" ] && continue
     rm -f "/etc/systemd/system/${other}.d/10-vici-swanmgr.conf"
     rmdir "/etc/systemd/system/${other}.d" 2>/dev/null || true
@@ -334,12 +339,13 @@ EOF
 }
 
 remove_vici_dropin() {
-  rm -f /etc/systemd/system/strongswan.service.d/10-vici-swanmgr.conf \
-        /etc/systemd/system/strongswan-swanctl.service.d/10-vici-swanmgr.conf
-  rmdir /etc/systemd/system/strongswan.service.d \
-        /etc/systemd/system/strongswan-swanctl.service.d 2>/dev/null || true
+  local u
+  for u in $STRONGSWAN_UNITS; do
+    rm -f "/etc/systemd/system/${u}.d/10-vici-swanmgr.conf"
+    rmdir "/etc/systemd/system/${u}.d" 2>/dev/null || true
+  done
   systemctl daemon-reload
-  systemctl restart strongswan 2>/dev/null || true
+  systemctl restart "$(strongswan_unit)" 2>/dev/null || true
 }
 
 # --- Vérifications réelles (base, VICI) --------------------------------------
@@ -373,8 +379,8 @@ verify_vici() {
 
 # --- Chaîne d'outils de compilation (mode « depuis les sources ») -------------
 
-GO_VERSION="${GO_VERSION:-1.23.5}"
-NODE_VERSION="${NODE_VERSION:-22.11.0}"
+GO_VERSION=1.23.5
+NODE_VERSION=22.11.0
 
 # Go ≥ 1.23 est un plancher dur (le module le déclare).
 go_ok() {
@@ -393,16 +399,15 @@ node_ok() {
 # d'échouer ou d'installer des paquets système, on récupère les archives OFFICIELLES dans un
 # répertoire temporaire. Rien n'est installé durablement sur la machine.
 ensure_toolchain() {
-  local tdir="$1" arch garch narch
-  arch="$(detect_arch)"
-  garch="$arch"                                    # go : linux-amd64 / linux-arm64
+  local tdir="$1" arch narch
+  arch="$(detect_arch)"                            # go : linux-amd64 / linux-arm64
   case "$arch" in amd64) narch=x64 ;; *) narch=arm64 ;; esac
 
   if go_ok; then
     ok "Go détecté : $(go version | awk '{print $3}')"
   else
     info "Go ≥ 1.23 absent ou trop ancien — récupération de la chaîne officielle go$GO_VERSION"
-    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${garch}.tar.gz" -o "$tdir/go.tgz" \
+    curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" -o "$tdir/go.tgz" \
       || die "téléchargement de Go échoué (réseau ?). Installez Go ≥ 1.23 vous-même, ou utilisez l'installation par binaire."
     tar -xzf "$tdir/go.tgz" -C "$tdir" || die "extraction de Go échouée."
     export GOROOT="$tdir/go"
@@ -496,15 +501,13 @@ EOF
   systemctl daemon-reload
 }
 
-health_url() { printf 'https://127.0.0.1:%s/healthz' "$HTTPS_PORT"; }
-
 # wait_health [SECONDES]
 wait_health() {
   local deadline="${1:-40}"
   local i
   for i in $(seq "$deadline"); do
     : "$i"
-    if [ "$(curl -sk -o /dev/null -w '%{http_code}' "$(health_url)" 2>/dev/null)" = 200 ]; then
+    if [ "$(curl -sk -o /dev/null -w '%{http_code}' "https://127.0.0.1:$HTTPS_PORT/healthz" 2>/dev/null)" = 200 ]; then
       return 0
     fi
     sleep 1
