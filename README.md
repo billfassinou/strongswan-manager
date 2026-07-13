@@ -34,13 +34,14 @@ donne alors l'URL et le mot de passe — que la console vous fera changer à la 
 
 Ensuite : `swanmgrctl doctor`, `backup`, `restore`, `upgrade` (avec retour arrière automatique).
 
-**Autres chemins** — paquets `.deb` / `.rpm` (mises à jour par `apt`/`dnf`), image
-`ghcr.io/billfassinou/strongswan-manager`, ou **installation hors ligne** : les archives Linux
-des [releases](https://github.com/billfassinou/strongswan-manager/releases/latest) sont des
-bundles autonomes, `sudo ./install.sh --skip-deps` n'accède à aucun réseau. Voir la
+**Autres chemins** — paquets `.deb` / `.rpm` (mises à jour par `apt`/`dnf`), **compilation
+depuis le dépôt** (`sudo ./deploy/install.sh --from-source`), ou **installation hors ligne** :
+les archives Linux des
+[releases](https://github.com/billfassinou/strongswan-manager/releases/latest) sont des bundles
+autonomes, `sudo ./install.sh --skip-deps` n'accède à aucun réseau. Voir la
 **[documentation d'installation](https://billfassinou.github.io/strongswan-manager/docs/#/02-installation)**.
 
-## Essayer en trois commandes
+## Essayer (lab de développement)
 
 ```bash
 git clone https://github.com/billfassinou/strongswan-manager.git
@@ -162,7 +163,7 @@ Install it on a systemd server (Debian/Ubuntu, RHEL/AlmaLinux/Rocky):
 curl -fsSL https://raw.githubusercontent.com/billfassinou/strongswan-manager/main/deploy/install.sh | sudo bash
 ```
 
-Or just try it, with Docker:
+Or just explore it with the development lab (not a deployment mode):
 
 ```bash
 git clone https://github.com/billfassinou/strongswan-manager.git
@@ -172,10 +173,10 @@ cd strongswan-manager/backend && make run
 ```
 
 Every [release](https://github.com/billfassinou/strongswan-manager/releases/latest) ships
-**self-contained bundles** (binary + installer + `swanmgrctl`), `.deb`/`.rpm` packages and a
-container image. The Linux bundles install **with no network access at all**
-(`sudo ./install.sh --skip-deps`) — air-gapped sites are a first-class path, not an
-afterthought.
+**self-contained bundles** (binary + installer + `swanmgrctl`) and `.deb`/`.rpm` packages. The
+Linux bundles install **with no network access at all** (`sudo ./install.sh --skip-deps`) —
+air-gapped sites are a first-class path, not an afterthought. You can also build from a clone:
+`sudo ./deploy/install.sh --from-source`.
 
 → **[Website](https://billfassinou.github.io/strongswan-manager/en/)** ·
 **[Documentation](https://billfassinou.github.io/strongswan-manager/docs/en/)**

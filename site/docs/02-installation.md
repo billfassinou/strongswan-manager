@@ -5,11 +5,10 @@ le dernier sert à découvrir le produit en cinq minutes.
 
 | Vous voulez… | Allez à |
 |---|---|
-| **Installer un serveur** (systemd, sans Docker) | [Installation en une commande](#installation-en-une-commande) |
+| **Installer un serveur** (systemd) | [Installation en une commande](#installation-en-une-commande) |
 | **Compiler depuis le dépôt** | [Installation depuis les sources](#installation-depuis-les-sources) |
 | Passer par **apt / dnf** (mises à jour intégrées) | [Paquets .deb et .rpm](#paquets-deb-et-rpm) |
 | Installer sur une machine **sans accès Internet** | [Installation hors ligne (air-gap)](#installation-hors-ligne-air-gap) |
-| Déployer avec **Docker** | [Docker](#docker) |
 | **Essayer** le produit, sans rien installer durablement | [Essai rapide](#essai-rapide) |
 
 ---
@@ -119,34 +118,12 @@ disant. Sans cette option, l'installeur essaierait d'atteindre les dépôts de l
 
 ---
 
-## Docker
-
-Une image est publiée à chaque release. Le fichier `docker-compose.prod.yml` et le script
-`docker-install.sh` sont dans le bundle (et dans `deploy/` du dépôt).
-
-```bash
-./docker-install.sh
-```
-
-Il génère un `.env` aux secrets aléatoires, démarre PostgreSQL et la console, attend qu'elle
-réponde, puis affiche l'URL et le mot de passe.
-
-Pour un site sans Internet, transportez les images :
-
-```bash
-docker save ghcr.io/billfassinou/strongswan-manager:v1.0.0 postgres:16-alpine | gzip > images.tar.gz
-# sur la machine cible :
-docker load < images.tar.gz
-```
-
-> ⚠️ Ne confondez pas avec `backend/docker-compose.yml`, qui est le **lab de développement** :
-> ses secrets sont publics et ses tunnels sont simulés.
-
----
-
 ## Essai rapide
 
-Pour découvrir l'interface sans rien installer durablement — il vous faut Docker et le dépôt :
+> Ce n'est **pas** un mode de déploiement : c'est le **lab de développement**, destiné à
+> découvrir l'interface. Pour mettre en service, utilisez l'une des voies ci-dessus.
+
+Il vous faut le dépôt et Docker :
 
 ```bash
 git clone <dépôt> && cd strongswan/backend

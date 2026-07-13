@@ -4,8 +4,10 @@ name: Release
 #   - des BUNDLES autonomes (binaire + installeur + swanmgrctl + unité systemd) : c'est eux
 #     qui rendent l'installation hors-ligne possible ;
 #   - des paquets .deb / .rpm (amd64, arm64) ;
-#   - une image multi-arch sur GHCR ;
 #   - SHA256SUMS, sa signature cosign (keyless) et un SBOM.
+#
+# Le déploiement par conteneur n'est plus proposé : l'installation se fait par le bundle,
+# le paquet natif, ou la compilation depuis les sources.
 #
 # Le binaire embarque la SPA React (`//go:embed all:dist`) : il faut donc builder le front
 # AVANT le `go build`, sinon la compilation échoue.
@@ -17,7 +19,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
   id-token: write   # cosign keyless (OIDC)
 
 jobs:
@@ -69,10 +70,8 @@ jobs:
             mkdir -p "dist/$NAME/lib"
             cp ../deploy/install.sh ../deploy/uninstall.sh ../deploy/swanmgrctl "dist/$NAME/"
             cp ../deploy/strongswan-manager.service "dist/$NAME/"
-            cp ../deploy/docker-compose.prod.yml ../deploy/docker-install.sh "dist/$NAME/"
             cp ../deploy/lib/common.sh "dist/$NAME/lib/"
-            chmod +x "dist/$NAME/install.sh" "dist/$NAME/uninstall.sh" \
-                     "dist/$NAME/swanmgrctl" "dist/$NAME/docker-install.sh"
+            chmod +x "dist/$NAME/install.sh" "dist/$NAME/uninstall.sh" "dist/$NAME/swanmgrctl"
           fi
 
           tar -C dist -czf "dist/$NAME.tar.gz" "$NAME"
@@ -103,32 +102,8 @@ jobs:
             backend/dist/*.rpm
           retention-days: 1
 
-  docker:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        # buildx publie sinon un artefact « .dockerbuild » que le job release, en
-        # téléchargeant TOUS les artefacts, n'arrive pas à récupérer (échec du download).
-        env:
-          DOCKER_BUILD_RECORD_UPLOAD: false
-        with:
-          context: backend
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-            ghcr.io/${{ github.repository }}:latest
-
   release:
-    needs: [build, docker]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -182,8 +157,13 @@ jobs:
           sudo ./install.sh --skip-deps      # aucun accès réseau
           \`\`\`
 
-          Aussi disponibles : paquets \`.deb\`/\`.rpm\`, et l'image
-          \`ghcr.io/$GITHUB_REPOSITORY:${GITHUB_REF_NAME}\`.
+          **Depuis les sources** — après avoir cloné le dépôt :
+
+          \`\`\`bash
+          sudo ./deploy/install.sh --from-source
+          \`\`\`
+
+          Aussi disponibles : paquets \`.deb\` / \`.rpm\` (amd64, arm64).
 
           Cycle de vie : \`swanmgrctl doctor|backup|restore|upgrade\`.
 

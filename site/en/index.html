@@ -71,8 +71,8 @@ curl -fsSL https://raw.githubusercontent.com/billfassinou/strongswan-manager/mai
 # PostgreSQL, strongSwan, secrets, systemd service, HTTPS: all set up.
 # Offline? The release bundle installs with no network at all (--skip-deps).
 
-# Just trying it out, with Docker:
-git clone &lt;repository&gt; &amp;&amp; cd strongswan/backend &amp;&amp; make run</pre>
+# Or build straight from the repository:
+git clone &lt;repository&gt; &amp;&amp; cd strongswan &amp;&amp; sudo ./deploy/install.sh --from-source</pre>
     </div>
   </div>
 </div>
@@ -249,7 +249,7 @@ git clone &lt;repository&gt; &amp;&amp; cd strongswan/backend &amp;&amp; make ru
       <div class="card"><h3>Go</h3><p>Modular backend, a single binary, small footprint, air-gap friendly.</p></div>
       <div class="card"><h3>React + TypeScript</h3><p>An embedded SPA served by the backend. No runtime dependency beyond React.</p></div>
       <div class="card"><h3>PostgreSQL</h3><p>Configuration, versions, PKI and an immutable audit log (enforced by a trigger).</p></div>
-      <div class="card"><h3>Docker</h3><p>One command starts everything, including a lab with real gateways.</p></div>
+      <div class="card"><h3>systemd</h3><p>A hardened service, installed by a script or a native package. No container required.</p></div>
     </div>
   </div>
 </section>
@@ -302,13 +302,14 @@ git clone &lt;repository&gt; &amp;&amp; cd strongswan/backend &amp;&amp; make ru
 <section id="start">
   <div class="wrap">
     <h2>Get started</h2>
-    <p class="sub">Docker is all you need. The app starts with its database, its migrations and its demo accounts.</p>
-    <pre>cd backend
-make run                 # PostgreSQL + application (demo mode)
-# → https://localhost:7926   admin / admin1234
+    <p class="sub">One command on a systemd server. PostgreSQL, strongSwan, secrets, HTTPS: all set up and verified.</p>
+    <pre>curl -fsSL https://raw.githubusercontent.com/billfassinou/strongswan-manager/main/deploy/install.sh | sudo bash
 
-make lab-up              # + 2 real strongSwan gateways (real tunnels)
-make test                # the test suite</pre>
+# or from a clone:
+sudo ./deploy/install.sh --from-source
+
+# or the native package:
+sudo dnf install ./strongswan-manager-*.rpm    # apt install ./…deb</pre>
     <div class="cta" style="margin-top:22px">
       <a class="btn pri" href="../docs/en/index.html">Full documentation</a>
       <a class="btn" href="../docs/en/index.html#/03-decouvrir-linterface">Guided tour of the interface</a>

@@ -5,11 +5,10 @@ one is to explore the product in five minutes.
 
 | You want to… | Go to |
 |---|---|
-| **Install a server** (systemd, no Docker) | [One-command install](#one-command-install) |
+| **Install a server** (systemd) | [One-command install](#one-command-install) |
 | **Build from the repository** | [Install from source](#install-from-source) |
 | Use **apt / dnf** (upgrades included) | [.deb and .rpm packages](#deb-and-rpm-packages) |
 | Install on a machine with **no Internet access** | [Offline install (air-gap)](#offline-install-air-gap) |
-| Deploy with **Docker** | [Docker](#docker) |
 | **Try** the product, without installing anything for good | [Quick trial](#quick-trial) |
 
 ---
@@ -119,34 +118,12 @@ option, the installer would try to reach the distribution repositories.
 
 ---
 
-## Docker
-
-An image is published with every release. `docker-compose.prod.yml` and `docker-install.sh`
-ship in the bundle (and live in `deploy/` in the repository).
-
-```bash
-./docker-install.sh
-```
-
-It generates a `.env` with random secrets, starts PostgreSQL and the console, waits for it to
-answer, then prints the URL and the password.
-
-For a site with no Internet access, carry the images over:
-
-```bash
-docker save ghcr.io/billfassinou/strongswan-manager:v1.0.0 postgres:16-alpine | gzip > images.tar.gz
-# on the target machine:
-docker load < images.tar.gz
-```
-
-> ⚠️ Do not confuse this with `backend/docker-compose.yml`, which is the **development lab**:
-> its secrets are public and its tunnels are simulated.
-
----
-
 ## Quick trial
 
-To explore the interface without installing anything for good — you need Docker and the repo:
+> This is **not** a deployment mode: it is the **development lab**, meant for exploring the
+> interface. To put the product into service, use one of the paths above.
+
+You need the repository and Docker:
 
 ```bash
 git clone <repo> && cd strongswan/backend
