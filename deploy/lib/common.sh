@@ -265,11 +265,27 @@ EOF
 
 # --- Socket VICI -------------------------------------------------------------
 
+# strongswan_unit → l'unité qui fait RÉELLEMENT tourner charon (celle qui crée le socket VICI).
+#
+# Piège : plusieurs unités peuvent coexister (strongswan.service = charon-systemd, le chemin
+# moderne ; strongswan-swanctl.service et strongswan-starter.service = héritage). Les trier
+# alphabétiquement choisit « strongswan-swanctl.service » AVANT « strongswan.service » ('-'
+# vaut 0x2D, '.' vaut 0x2E) — on poserait alors le drop-in sur une unité inerte, et le socket
+# resterait root:root. On prend donc l'unité ACTIVE, et à défaut on préfère explicitement
+# strongswan.service.
 strongswan_unit() {
   local u
-  u="$(systemctl list-unit-files --type=service --no-legend 2>/dev/null \
-    | awk '{print $1}' | grep -E '^strongswan(-swanctl)?\.service$' | head -1)"
-  printf '%s' "${u:-strongswan.service}"
+  for u in strongswan.service strongswan-swanctl.service strongswan-starter.service; do
+    if systemctl is-active --quiet "$u" 2>/dev/null; then
+      printf '%s' "$u"; return 0
+    fi
+  done
+  for u in strongswan.service strongswan-swanctl.service; do
+    if systemctl list-unit-files "$u" --no-legend 2>/dev/null | grep -q .; then
+      printf '%s' "$u"; return 0
+    fi
+  done
+  printf 'strongswan.service'
 }
 
 vici_socket() {
@@ -284,7 +300,16 @@ vici_socket() {
 # perdu au premier redémarrage. D'où ce drop-in, rejoué à chaque fois — c'est lui qui permet
 # à la console de piloter charon SANS tourner en root.
 install_vici_dropin() {
-  local sw_unit; sw_unit="$(strongswan_unit)"
+  local sw_unit other; sw_unit="$(strongswan_unit)"
+
+  # Purge un drop-in laissé sur une AUTRE unité (une version antérieure pouvait se tromper
+  # d'unité) : sinon il resterait à traîner, inerte et trompeur.
+  for other in strongswan.service strongswan-swanctl.service strongswan-starter.service; do
+    [ "$other" = "$sw_unit" ] && continue
+    rm -f "/etc/systemd/system/${other}.d/10-vici-swanmgr.conf"
+    rmdir "/etc/systemd/system/${other}.d" 2>/dev/null || true
+  done
+
   mkdir -p "/etc/systemd/system/${sw_unit}.d"
   cat > "/etc/systemd/system/${sw_unit}.d/10-vici-swanmgr.conf" <<EOF
 # Posé par StrongSwan Manager : ouvre le socket VICI au groupe « $SVC_USER ».
