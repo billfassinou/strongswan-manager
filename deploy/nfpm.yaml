@@ -21,18 +21,28 @@ vendor: StrongSwan Manager
 homepage: https://billfassinou.github.io/strongswan-manager/
 license: AGPL-3.0-or-later
 
-# PostgreSQL est requis (le serveur ne démarre pas sans base). strongSwan est seulement
-# recommandé : sans lui, la console démarre en mode démo — utile pour une console qui ne
-# pilote que des passerelles distantes.
+# Dépendances FORTES, et c'est délibéré. Deux raisons, toutes deux vérifiées :
+#
+# 1. En « recommandé », dpkg/rpm configurent le paquet recommandé APRÈS le nôtre : notre
+#    postinstall voyait alors « strongSwan absent » et gravait le MODE DÉMO — alors que
+#    strongSwan s'installait deux secondes plus tard. Une dépendance forte garantit l'ordre.
+# 2. Ne dépendre que du CLIENT PostgreSQL laissait une machine propre sans serveur : la base
+#    n'était jamais provisionnée et le service ne démarrait pas.
+#
+# Conséquence assumée : le paquet exige strongSwan sur la machine. Une console qui ne pilote
+# que des passerelles DISTANTES doit passer par « install.sh --no-strongswan ».
 depends:
-  - postgresql-client
-recommends:
+  - postgresql            # LE SERVEUR (le métapaquet Debian tire aussi le client)
   - strongswan
+  - strongswan-swanctl    # swanctl + le plugin vici : sans eux, pas de pilotage
+  - charon-systemd
 
 overrides:
   rpm:
     depends:
-      - postgresql
+      - postgresql-server
+      - postgresql        # le client : psql et pg_dump, dont swanmgrctl a besoin
+      - strongswan        # exige le dépôt EPEL sur RHEL/AlmaLinux/Rocky
 
 contents:
   # nfpm n'expanse PAS les variables d'environnement dans `src` (contrairement à `arch` et

@@ -313,11 +313,18 @@ jobs:
           sudo journalctl -u strongswan -n 60 --no-pager || true
           sudo ls -l /run/charon.vici || true
 
-  # Les scriptlets .deb/.rpm (postinstall, preremove, postremove) sont publiés à chaque
-  # release et n'étaient exécutés par AUCUN test : ~200 lignes livrées sur la foi d'une
-  # lecture de doc. Ce job installe un vrai paquet et déroule son cycle de vie.
+  # Les paquets étaient testés SUR LE RUNNER — qui a PostgreSQL préinstallé. Le test passait
+  # donc grâce à l'image du runner, pas grâce au paquet : sur une machine propre, la base
+  # n'était jamais provisionnée. On teste désormais dans des conteneurs VIERGES, avec systemd,
+  # sur les deux familles de distributions visées.
   installer-package:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { distro: debian, image: debian:12,     fmt: deb }
+          - { distro: almalinux, image: almalinux:9, fmt: rpm }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -330,48 +337,133 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: '1.23', cache-dependency-path: backend/go.sum }
 
-      - name: Construire le .deb (comme la release)
+      - name: Construire le paquet (comme la release)
         run: |
           set -euo pipefail
-          mkdir -p backend/dist/pkg
+          mkdir -p backend/dist/pkg /tmp/pkg
           (cd backend && CGO_ENABLED=0 go build -ldflags "-X main.version=v0.0.0-ci" \
             -o dist/pkg/strongswan-manager ./cmd/server)
           curl -fsSL https://github.com/goreleaser/nfpm/releases/download/v2.41.1/nfpm_2.41.1_Linux_x86_64.tar.gz \
             | tar xz -C /tmp nfpm
-          GOARCH=amd64 SEMVER=0.0.0 /tmp/nfpm package -f deploy/nfpm.yaml -p deb -t /tmp/
-          echo "DEB=$(ls /tmp/*.deb)" >> "$GITHUB_ENV"
+          GOARCH=amd64 SEMVER=0.0.0 /tmp/nfpm package -f deploy/nfpm.yaml -p ${{ matrix.fmt }} -t /tmp/pkg/
+          ls -l /tmp/pkg/
 
-      - name: Installer le paquet
+      # Machine VIERGE : ni PostgreSQL, ni strongSwan. C'est au paquet de les tirer.
+      - name: Conteneur ${{ matrix.image }} avec systemd (aucun prérequis installé)
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$DEB"
-          sudo systemctl is-active --quiet strongswan-manager
-          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
-          # /usr/bin, sinon « sudo swanmgrctl » serait introuvable (secure_path).
-          sudo swanmgrctl version
+          mkdir -p /tmp/img
+          if [ "${{ matrix.distro }}" = debian ]; then
+            cat > /tmp/img/Dockerfile <<'EOF'
+          FROM debian:12
+          RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+                systemd systemd-sysv curl ca-certificates procps iproute2 >/dev/null
+          STOPSIGNAL SIGRTMIN+3
+          CMD ["/lib/systemd/systemd"]
+          EOF
+          else
+            cat > /tmp/img/Dockerfile <<'EOF'
+          FROM almalinux:9
+          # EPEL : strongSwan n'est PAS dans les dépôts de base de RHEL/AlmaLinux.
+          RUN dnf -y install systemd curl procps-ng iproute epel-release >/dev/null && dnf clean all
+          STOPSIGNAL SIGRTMIN+3
+          CMD ["/usr/sbin/init"]
+          EOF
+          fi
+          docker build -q -t box -f /tmp/img/Dockerfile /tmp/img
+          docker run -d --name box --privileged --cgroupns=host \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw -v /tmp/pkg:/pkg:ro box
+          for i in $(seq 60); do
+            docker exec box systemctl is-system-running 2>/dev/null | grep -qE 'running|degraded' && break
+            sleep 2
+          done
+          docker exec box systemctl is-system-running || true
 
-      - name: Mise à jour du paquet — secrets et base conservés, service toujours actif
+      - name: Le paquet installe TOUT ce dont il a besoin, et n'est PAS en mode démo
         run: |
           set -euo pipefail
-          BEFORE="$(sudo sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --reinstall "$DEB"
-          AFTER="$(sudo sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
+          if [ "${{ matrix.fmt }}" = deb ]; then
+            docker exec box bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq /pkg/*.deb'
+          else
+            docker exec box bash -c 'dnf -y install /pkg/*.rpm'
+          fi
+
+          # Le paquet doit avoir tiré le SERVEUR PostgreSQL (pas seulement le client)…
+          docker exec box sh -c 'command -v psql && command -v pg_dump' >/dev/null
+          docker exec box systemctl is-active --quiet postgresql
+          # …et strongSwan, swanctl compris.
+          docker exec box sh -c 'command -v swanctl' >/dev/null
+
+          docker exec box systemctl is-active --quiet strongswan-manager
+          docker exec box sh -c "curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz" | grep -q 200
+
+          # Le piège : notre postinstall tournait AVANT que strongSwan soit configuré, et
+          # gravait le mode démo. VICI_ENDPOINTS doit être renseigné.
+          docker exec box grep -q '^VICI_ENDPOINTS=local=unix:' /etc/strongswan-manager/strongswan-manager.env \
+            || { echo "le paquet a livré un MODE DÉMO : VICI_ENDPOINTS est vide"; exit 1; }
+
+      - name: Mise à jour — secrets et base conservés, service toujours activé au boot
+        run: |
+          set -euo pipefail
+          BEFORE="$(docker exec box sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
+          if [ "${{ matrix.fmt }}" = deb ]; then
+            docker exec box bash -c 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --reinstall /pkg/*.deb'
+          else
+            docker exec box bash -c 'dnf -y reinstall /pkg/*.rpm'
+          fi
+          AFTER="$(docker exec box sed -n 's/^SECRETS_KEY=//p' /etc/strongswan-manager/strongswan-manager.env)"
           [ "$BEFORE" = "$AFTER" ] || { echo "SECRETS_KEY régénérée à la mise à jour : données perdues"; exit 1; }
-          # Le piège des scriptlets : un prerm qui désactive l'unité la laisse morte au boot.
-          sudo systemctl is-enabled --quiet strongswan-manager \
+          docker exec box systemctl is-enabled --quiet strongswan-manager \
             || { echo "le service n'est plus activé au démarrage après une mise à jour"; exit 1; }
           sleep 3
-          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+          docker exec box sh -c "curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz" | grep -q 200
 
-      - name: Retrait du paquet — la base et la configuration SURVIVENT
+      - name: Retrait — la base et la configuration SURVIVENT
         run: |
           set -euo pipefail
-          sudo DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq strongswan-manager
-          ! systemctl is-active --quiet strongswan-manager
-          sudo test -f /etc/strongswan-manager/strongswan-manager.env
-          sudo -u postgres psql -lqt | cut -d\| -f1 | grep -qw swan
+          if [ "${{ matrix.fmt }}" = deb ]; then
+            docker exec box bash -c 'DEBIAN_FRONTEND=noninteractive apt-get remove -y -qq strongswan-manager'
+          else
+            docker exec box bash -c 'dnf -y remove strongswan-manager'
+          fi
+          ! docker exec box systemctl is-active --quiet strongswan-manager
+          docker exec box test -f /etc/strongswan-manager/strongswan-manager.env
 
       - name: Journaux en cas d'échec
         if: failure()
-        run: sudo journalctl -u strongswan-manager -n 100 --no-pager || true
+        run: |
+          docker exec box journalctl -u strongswan-manager -n 80 --no-pager || true
+          docker exec box journalctl -u strongswan -n 40 --no-pager || true
+          docker exec box ls -l /run/charon.vici || true
+
+  # LA méthode mise en avant — « curl … | sudo bash » — n'était testée par rien, alors que
+  # c'est celle qui a cassé deux fois (curl: (23) au ré-exec, puis la confirmation lue sur un
+  # tube mort). On l'exécute ici telle qu'un utilisateur la tape : par un TUBE.
+  #
+  # Le bootstrap télécharge la DERNIÈRE RELEASE : ce job teste donc le script d'amorçage de
+  # `main` contre le bundle publié. C'est exactement ce que vit l'utilisateur.
+  installer-oneliner:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: curl … | sudo bash (tube, sans terminal — comme cloud-init)
+        run: |
+          set -uo pipefail
+          # file:// plutôt que raw.githubusercontent : on teste le script de CETTE branche.
+          curl -fsSL "file://$PWD/deploy/install.sh" | sudo bash -s -- --yes --no-strongswan 2>&1 | tee /tmp/out.txt
+          rc=${PIPESTATUS[1]}
+
+          grep -q "curl: (23)" /tmp/out.txt && { echo "curl (23) : le tube n'est pas drainé"; exit 1; }
+          [ "$rc" -eq 0 ] || { echo "le one-liner a échoué (code $rc)"; exit 1; }
+
+      - name: La console tourne, et le binaire vient bien de la release
+        run: |
+          set -euo pipefail
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+          LATEST="$(curl -fsSL https://api.github.com/repos/${{ github.repository }}/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)"
+          sudo swanmgrctl version | grep -q "$LATEST"
+
+      - name: Journaux en cas d'échec
+        if: failure()
+        run: sudo journalctl -u strongswan-manager -n 60 --no-pager || true
