@@ -429,12 +429,19 @@ jobs:
           ! docker exec box systemctl is-active --quiet strongswan-manager
           docker exec box test -f /etc/strongswan-manager/strongswan-manager.env
 
-      - name: Journaux en cas d'échec
+      - name: Diagnostic en cas d'échec
         if: failure()
         run: |
-          docker exec box journalctl -u strongswan-manager -n 80 --no-pager || true
-          docker exec box journalctl -u strongswan -n 40 --no-pager || true
-          docker exec box ls -l /run/charon.vici || true
+          echo "--- unités strongswan disponibles :"
+          docker exec box systemctl list-unit-files '*strongswan*' --no-legend || true
+          echo "--- état de chaque unité :"
+          for u in strongswan strongswan-swanctl strongswan-starter; do
+            echo "  [$u] $(docker exec box systemctl is-active $u.service 2>&1 || true)"
+          done
+          echo "--- swanctl :"; docker exec box sh -c 'command -v swanctl && swanctl --version' || true
+          echo "--- socket :"; docker exec box ls -l /run/charon.vici /var/run/charon.vici || true
+          echo "--- status :"; docker exec box systemctl status strongswan --no-pager -l || true
+          docker exec box journalctl -u strongswan-manager -n 60 --no-pager || true
 
   # LA méthode mise en avant — « curl … | sudo bash » — n'était testée par rien, alors que
   # c'est celle qui a cassé deux fois (curl: (23) au ré-exec, puis la confirmation lue sur un

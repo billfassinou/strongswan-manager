@@ -315,8 +315,12 @@ cmd_upgrade() {
     local arch base name
     arch="$(detect_arch)"
     if [ "$version" = latest ]; then
-      version="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-        | grep -m1 '"tag_name"' | cut -d'"' -f4)"
+      # Même piège que dans install.sh : « curl | grep -m1 » fait sortir curl en 23 (EPIPE),
+      # pipefail le propage, set -e tue le script en silence. On analyse APRÈS coup.
+      local api
+      api="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" \
+        || die "impossible d'interroger l'API GitHub (réseau ?)."
+      version="$(printf '%s\n' "$api" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
       [ -n "$version" ] || die "impossible de déterminer la dernière version."
     fi
     base="https://github.com/$REPO/releases/download/$version"

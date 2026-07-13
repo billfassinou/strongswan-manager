@@ -126,8 +126,13 @@ if [ -z "$SELF_DIR" ] || [ ! -f "$SELF_DIR/lib/common.sh" ] || [ ! -x "$SELF_DIR
   esac
 
   if [ "$VERSION" = latest ]; then
-    VERSION="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-      | grep -m1 '"tag_name"' | cut -d'"' -f4)"
+    # On récupère la réponse ENTIÈRE avant de l'analyser. Écrire « curl … | grep -m1 … »
+    # est un piège : grep s'arrête au premier match et ferme le tube, curl reçoit un EPIPE
+    # et sort en 23 ; pipefail propage ce 23 et set -e tue le script SANS UN MOT. C'est une
+    # course (elle passe si la réponse tient dans le tampon), donc un échec intermittent.
+    api="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" \
+      || { printf '✘ impossible d'"'"'interroger l'"'"'API GitHub (réseau ?).\n' >&2; exit 1; }
+    VERSION="$(printf '%s\n' "$api" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
     [ -n "$VERSION" ] || { printf '✘ impossible de déterminer la dernière version.\n' >&2; exit 1; }
   fi
 
