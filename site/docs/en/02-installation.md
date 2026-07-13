@@ -88,6 +88,18 @@ The post-install does the same work as the script: system user, database, secret
 **Removing the package deletes neither the database nor the configuration** — you would have
 to erase them explicitly (the removal message gives you the commands).
 
+> ⚠️ **On RHEL/AlmaLinux/Rocky, enable EPEL first**: the package requires strongSwan, which is
+> not in the base repositories.
+>
+> ```bash
+> sudo dnf install -y epel-release
+> ```
+>
+> The packages declare **strongSwan and the PostgreSQL server as hard dependencies**: they are
+> therefore installed *and configured* before our post-install runs. That is what guarantees the
+> console actually drives charon instead of starting in demo mode. A console that only drives
+> **remote** gateways should use `install.sh --no-strongswan`.
+
 ---
 
 ## Offline install (air-gap)

@@ -88,6 +88,18 @@ Le post-installation fait le même travail que le script : utilisateur système,
 service. **Retirer le paquet ne supprime ni la base, ni la configuration** — il faudrait les
 effacer explicitement (le message de désinstallation vous donne les commandes).
 
+> ⚠️ **Sur RHEL/AlmaLinux/Rocky, activez EPEL d'abord** : le paquet exige strongSwan, qui n'est
+> pas dans les dépôts de base.
+>
+> ```bash
+> sudo dnf install -y epel-release
+> ```
+>
+> Les paquets déclarent **strongSwan et le serveur PostgreSQL en dépendances fortes** : ils
+> sont donc installés *et configurés* avant notre post-installation. C'est ce qui garantit que
+> la console pilote réellement charon au lieu de démarrer en mode démo. Une console qui ne
+> pilote que des passerelles **distantes** doit passer par `install.sh --no-strongswan`.
+
 ---
 
 ## Installation hors ligne (air-gap)
