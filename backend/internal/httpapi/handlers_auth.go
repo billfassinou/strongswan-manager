@@ -148,10 +148,13 @@ func (a *API) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 // requirePasswordChanged interdit tout usage de l'API tant que le compte utilise encore le
 // mot de passe posé à l'installation. Sans ce garde-fou, le blocage ne vivrait que dans le
 // front — et l'API resterait ouverte à qui connaît le mot de passe d'usine.
+//
+// Ce middleware ne s'applique QU'au groupe des routes verrouillées : /me et /me/password en
+// sont exclus par la structure du routeur, pas par une liste de chemins à maintenir. Le
+// principal est toujours présent ici (le middleware d'authentification l'a déjà exigé).
 func (a *API) requirePasswordChanged(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		p := auth.PrincipalFrom(r.Context())
-		if p != nil && p.MustChangePassword && r.URL.Path != "/api/v1/me" && r.URL.Path != "/api/v1/me/password" {
+		if auth.PrincipalFrom(r.Context()).MustChangePassword {
 			writeError(w, r, http.StatusForbidden, "password_change_required",
 				"mot de passe initial : changez-le (POST /api/v1/me/password) avant d'utiliser la console")
 			return

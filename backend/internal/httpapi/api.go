@@ -68,43 +68,49 @@ func (a *API) Router() http.Handler {
 		r.Get("/docs", a.handleDocs)
 		r.Get("/ws", a.handleWS) // auth par ?token= (le navigateur ne peut pas poser d'en-tête sur un WS)
 
-		// Endpoints protégés
+		// Endpoints protégés (authentification requise)
 		r.Group(func(r chi.Router) {
 			r.Use(a.Auth.Middleware)
-			// Tant que le compte porte le mot de passe posé à l'installation, seuls /me et
-			// /me/password répondent : l'API ne s'ouvre qu'une fois le mot de passe changé.
-			r.Use(a.requirePasswordChanged)
+
+			// Toujours accessibles une fois authentifié : c'est par /me/password que l'on
+			// lève le verrou du mot de passe initial.
 			r.Get("/me", a.handleMe)
 			r.Post("/me/password", a.handleChangePassword)
-			r.Get("/gateways", a.handleListGateways)
-			r.Get("/secrets", a.handleListSecrets)
-			r.Get("/certificates", a.handleListCerts)
-			r.Get("/ca", a.handleGetCA)
-			r.Get("/crl", a.handleGetCRL)
-			r.Get("/config/{kind}", a.handleListConfig)
-			r.Get("/tunnels", a.handleListTunnels)
-			r.Get("/tunnels/{id}", a.handleGetTunnel)
-			r.Get("/tunnels/{id}/versions", a.handleTunnelVersions)
-			r.Get("/audit", a.handleAudit)
 
-			// Actions modifiantes : réservées aux rôles avec droit d'écriture
+			// Tout le reste exige que le mot de passe posé à l'installation ait été changé.
+			// Le verrou est porté par le groupe, pas par une liste de chemins à tenir à jour.
 			r.Group(func(r chi.Router) {
-				r.Use(auth.RequireWrite)
-				r.Post("/secrets", a.handleCreateSecret)
-				r.Delete("/secrets/{id}", a.handleDeleteSecret)
-				r.Post("/certificates", a.handleCreateCert)
-				r.Post("/certificates/{id}/revoke", a.handleRevokeCert)
-				r.Post("/crl/publish", a.handlePublishCRL)
-				r.Post("/config/{kind}", a.handleCreateConfig)
-				r.Put("/config/{kind}/{id}", a.handleUpdateConfig)
-				r.Delete("/config/{kind}/{id}", a.handleDeleteConfig)
-				r.Post("/tunnels", a.handleCreateTunnel)
-				r.Put("/tunnels/{id}", a.handleUpdateTunnel)
-				r.Delete("/tunnels/{id}", a.handleDeleteTunnel)
-				r.Post("/tunnels/{id}/initiate", a.handleTunnelAction("initiate"))
-				r.Post("/tunnels/{id}/terminate", a.handleTunnelAction("terminate"))
-				r.Post("/tunnels/{id}/rekey", a.handleTunnelAction("rekey"))
-				r.Post("/tunnels/{id}/rollback", a.handleRollback)
+				r.Use(a.requirePasswordChanged)
+				r.Get("/gateways", a.handleListGateways)
+				r.Get("/secrets", a.handleListSecrets)
+				r.Get("/certificates", a.handleListCerts)
+				r.Get("/ca", a.handleGetCA)
+				r.Get("/crl", a.handleGetCRL)
+				r.Get("/config/{kind}", a.handleListConfig)
+				r.Get("/tunnels", a.handleListTunnels)
+				r.Get("/tunnels/{id}", a.handleGetTunnel)
+				r.Get("/tunnels/{id}/versions", a.handleTunnelVersions)
+				r.Get("/audit", a.handleAudit)
+
+				// Actions modifiantes : réservées aux rôles avec droit d'écriture
+				r.Group(func(r chi.Router) {
+					r.Use(auth.RequireWrite)
+					r.Post("/secrets", a.handleCreateSecret)
+					r.Delete("/secrets/{id}", a.handleDeleteSecret)
+					r.Post("/certificates", a.handleCreateCert)
+					r.Post("/certificates/{id}/revoke", a.handleRevokeCert)
+					r.Post("/crl/publish", a.handlePublishCRL)
+					r.Post("/config/{kind}", a.handleCreateConfig)
+					r.Put("/config/{kind}/{id}", a.handleUpdateConfig)
+					r.Delete("/config/{kind}/{id}", a.handleDeleteConfig)
+					r.Post("/tunnels", a.handleCreateTunnel)
+					r.Put("/tunnels/{id}", a.handleUpdateTunnel)
+					r.Delete("/tunnels/{id}", a.handleDeleteTunnel)
+					r.Post("/tunnels/{id}/initiate", a.handleTunnelAction("initiate"))
+					r.Post("/tunnels/{id}/terminate", a.handleTunnelAction("terminate"))
+					r.Post("/tunnels/{id}/rekey", a.handleTunnelAction("rekey"))
+					r.Post("/tunnels/{id}/rollback", a.handleRollback)
+				})
 			})
 		})
 	})
