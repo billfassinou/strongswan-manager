@@ -126,14 +126,14 @@ if [ -z "$SELF_DIR" ] || [ ! -f "$SELF_DIR/lib/common.sh" ] || [ ! -x "$SELF_DIR
   esac
 
   if [ "$VERSION" = latest ]; then
-    # On récupère la réponse ENTIÈRE avant de l'analyser. Écrire « curl … | grep -m1 … »
-    # est un piège : grep s'arrête au premier match et ferme le tube, curl reçoit un EPIPE
-    # et sort en 23 ; pipefail propage ce 23 et set -e tue le script SANS UN MOT. C'est une
-    # course (elle passe si la réponse tient dans le tampon), donc un échec intermittent.
-    api="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" \
-      || { printf '✘ impossible d'"'"'interroger l'"'"'API GitHub (réseau ?).\n' >&2; exit 1; }
-    VERSION="$(printf '%s\n' "$api" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
-    [ -n "$VERSION" ] || { printf '✘ impossible de déterminer la dernière version.\n' >&2; exit 1; }
+    # Redirection de /releases/latest plutôt que l'API GitHub (plafonnée à 60 req/h par IP,
+    # d'où des 403 derrière une IP partagée). Voir resolve_latest_version dans lib/common.sh.
+    url="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest")" \
+      || { printf '✘ impossible de joindre GitHub (réseau ?).\n' >&2; exit 1; }
+    case "$url" in
+      */releases/tag/*) VERSION="${url##*/tag/}" ;;
+      *) printf '✘ impossible de déterminer la dernière version.\n' >&2; exit 1 ;;
+    esac
   fi
 
   printf '▸ téléchargement du bundle %s (%s)\n' "$VERSION" "$arch"

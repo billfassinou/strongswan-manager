@@ -120,13 +120,18 @@ make_tmpdir() {
 # (le job CI « installer-oneliner » l'exerce de bout en bout).
 
 # resolve_latest_version → dernière étiquette publiée sur GitHub.
-# « curl | grep -m1 » ferait sortir curl en 23 (EPIPE) ; pipefail + set -e tueraient le script
-# en silence. On récupère TOUT, puis on analyse.
+# On suit la REDIRECTION de /releases/latest (302 vers /releases/tag/vX.Y.Z) plutôt que
+# d'interroger api.github.com : l'API non authentifiée est plafonnée à 60 requêtes/heure PAR
+# IP, ce qui la fait échouer en 403 derrière une IP partagée (NAT d'entreprise, CI). La page
+# de redirection, elle, n'est pas limitée.
 resolve_latest_version() {
-  local api
-  api="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" \
-    || die "impossible d'interroger l'API GitHub (réseau ?)."
-  printf '%s\n' "$api" | grep -m1 '"tag_name"' | cut -d'"' -f4
+  local url
+  url="$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest")" \
+    || die "impossible de joindre GitHub (réseau ?)."
+  case "$url" in
+    */releases/tag/*) printf '%s' "${url##*/tag/}" ;;
+    *) die "impossible de déterminer la dernière version (URL inattendue : $url)." ;;
+  esac
 }
 
 # fetch_bundle VERSION DEST → télécharge le bundle linux, vérifie son SHA-256, l'extrait dans
