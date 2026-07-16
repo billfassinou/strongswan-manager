@@ -113,6 +113,43 @@ make_tmpdir() {
   printf '%s' "$d"
 }
 
+# --- Récupération d'un bundle de release -------------------------------------
+#
+# Utilisé par swanmgrctl (mise à jour réseau). install.sh, lui, ne peut PAS s'en servir : son
+# amorçage tourne AVANT de sourcer ce fichier — d'où sa copie, qui reste la référence testée
+# (le job CI « installer-oneliner » l'exerce de bout en bout).
+
+# resolve_latest_version → dernière étiquette publiée sur GitHub.
+# « curl | grep -m1 » ferait sortir curl en 23 (EPIPE) ; pipefail + set -e tueraient le script
+# en silence. On récupère TOUT, puis on analyse.
+resolve_latest_version() {
+  local api
+  api="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" \
+    || die "impossible d'interroger l'API GitHub (réseau ?)."
+  printf '%s\n' "$api" | grep -m1 '"tag_name"' | cut -d'"' -f4
+}
+
+# fetch_bundle VERSION DEST → télécharge le bundle linux, vérifie son SHA-256, l'extrait dans
+# DEST, et écrit sur stdout le chemin du dossier extrait. Meurt sinon.
+fetch_bundle() {
+  local version="$1" dest="$2" arch base name expected actual
+  command -v curl >/dev/null 2>&1 || die "curl est requis."
+  arch="$(detect_arch)"
+  base="https://github.com/$REPO/releases/download/$version"
+  name="strongswan-manager_${version}_linux_${arch}"
+
+  curl -fsSL "$base/$name.tar.gz" -o "$dest/bundle.tar.gz" || die "téléchargement de $name.tar.gz échoué."
+  curl -fsSL "$base/SHA256SUMS"   -o "$dest/SHA256SUMS"    || die "téléchargement de SHA256SUMS échoué."
+
+  expected="$(awk -v f="$name.tar.gz" '$2 == f || $2 == "*"f {print $1}' "$dest/SHA256SUMS" | head -1)"
+  actual="$(sha256sum "$dest/bundle.tar.gz" | cut -d' ' -f1)"
+  if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+    die "SOMME DE CONTRÔLE INVALIDE — archive corrompue ou altérée."
+  fi
+  tar -xzf "$dest/bundle.tar.gz" -C "$dest" || die "extraction du bundle échouée."
+  printf '%s' "$dest/$name"
+}
+
 # --- Migration des anciens emplacements --------------------------------------
 
 # Les versions ≤ 0.3.0 posaient les binaires dans /usr/local/bin et les fichiers auxiliaires

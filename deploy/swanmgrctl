@@ -312,38 +312,18 @@ cmd_upgrade() {
     if [ -z "$new" ] || [ ! -f "$new" ]; then die "binaire introuvable dans le bundle."; fi
   else
     command -v curl >/dev/null 2>&1 || die "curl est requis (ou utilisez --bundle)."
-    local arch base name
-    arch="$(detect_arch)"
-    if [ "$version" = latest ]; then
-      # Même piège que dans install.sh : « curl | grep -m1 » fait sortir curl en 23 (EPIPE),
-      # pipefail le propage, set -e tue le script en silence. On analyse APRÈS coup.
-      local api
-      api="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")" \
-        || die "impossible d'interroger l'API GitHub (réseau ?)."
-      version="$(printf '%s\n' "$api" | grep -m1 '"tag_name"' | cut -d'"' -f4)"
-      [ -n "$version" ] || die "impossible de déterminer la dernière version."
-    fi
-    base="https://github.com/$REPO/releases/download/$version"
-    name="strongswan-manager_${version}_linux_${arch}"
+    [ "$version" = latest ] && version="$(resolve_latest_version)"
+    [ -n "$version" ] || die "impossible de déterminer la dernière version."
 
     info "téléchargement de $version"
-    curl -fsSL "$base/$name.tar.gz" -o "$tmp/bundle.tar.gz" || die "téléchargement échoué."
-    curl -fsSL "$base/SHA256SUMS"   -o "$tmp/SHA256SUMS"    || die "téléchargement de SHA256SUMS échoué."
-    local expected actual
-    expected="$(awk -v f="$name.tar.gz" '$2 == f || $2 == "*"f {print $1}' "$tmp/SHA256SUMS" | head -1)"
-    actual="$(sha256sum "$tmp/bundle.tar.gz" | cut -d' ' -f1)"
-    if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
-      die "SOMME DE CONTRÔLE INVALIDE — mise à jour interrompue."
-    fi
+    local bdir; bdir="$(fetch_bundle "$version" "$tmp")"   # télécharge + vérifie le SHA-256
     ok "somme de contrôle vérifiée"
-    tar -xzf "$tmp/bundle.tar.gz" -C "$tmp"
-    new="$tmp/$name/strongswan-manager"
+    new="$bdir/strongswan-manager"
     # Les outils du bundle valent pour la version installée : on les rafraîchit aussi.
-    [ -f "$tmp/$name/swanmgrctl" ] && install -m 0755 "$tmp/$name/swanmgrctl" "$BIN_DIR/swanmgrctl.new"
-    [ -f "$tmp/$name/lib/common.sh" ] && install -m 0644 "$tmp/$name/lib/common.sh" \
-      "$SHARE_DIR/lib/common.sh"
-    [ -f "$tmp/$name/strongswan-manager.service" ] && install -m 0644 \
-      "$tmp/$name/strongswan-manager.service" "$UNIT" && systemctl daemon-reload
+    [ -f "$bdir/swanmgrctl" ] && install -m 0755 "$bdir/swanmgrctl" "$BIN_DIR/swanmgrctl.new"
+    [ -f "$bdir/lib/common.sh" ] && install -m 0644 "$bdir/lib/common.sh" "$SHARE_DIR/lib/common.sh"
+    [ -f "$bdir/strongswan-manager.service" ] && install -m 0644 \
+      "$bdir/strongswan-manager.service" "$UNIT" && systemctl daemon-reload
   fi
 
   info "sauvegarde préalable"
