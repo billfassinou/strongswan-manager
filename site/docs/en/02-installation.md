@@ -242,6 +242,7 @@ The installer also ships a lifecycle tool:
 | Command | Effect |
 |---|---|
 | `swanmgrctl doctor` | Full diagnosis: database, VICI socket, certificate, ports, firewall. **The first thing to run when something looks wrong.** |
+| `swanmgrctl doctor --fix` | First **repairs** (starts PostgreSQL, fixes `pg_hba`, reopens the VICI socket, restarts the console, reopens the firewall), **then** diagnoses. **Never** restarts charon — active IPsec tunnels are preserved. |
 | `swanmgrctl backup` | Backs up the database **and** `SECRETS_KEY` into one archive. |
 | `swanmgrctl restore ARCHIVE` | Restores. Refuses if the archive's key does not match this installation. |
 | `swanmgrctl upgrade` | Backs up, upgrades, verifies, and **rolls back on its own** if the console stops answering. |

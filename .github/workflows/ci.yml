@@ -139,6 +139,15 @@ jobs:
       - name: swanmgrctl doctor signale le mode démo
         run: sudo swanmgrctl doctor 2>&1 | tee /tmp/doctor.txt; grep -q "MODE DÉMO" /tmp/doctor.txt
 
+      # doctor --fix relance la console si elle est tombée.
+      - name: doctor --fix redémarre la console arrêtée
+        run: |
+          set -euo pipefail
+          sudo systemctl stop strongswan-manager
+          sudo swanmgrctl doctor --fix | tee /tmp/fix.txt
+          grep -q "redémarrage de la console" /tmp/fix.txt
+          curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1:7926/healthz | grep -q 200
+
       - name: Sauvegarde et restauration
         run: |
           set -euo pipefail
@@ -299,6 +308,24 @@ jobs:
           if grep -q "MODE DÉMO" /tmp/doctor.txt; then
             echo "la console est en mode démo alors que strongSwan est installé"; exit 1
           fi
+
+      # « doctor --fix » doit RÉPARER le socket VICI sans redémarrer charon (cela couperait
+      # les tunnels actifs). On casse volontairement le groupe du socket, on capture le PID de
+      # charon, puis on répare — et on exige que le PID de charon soit INCHANGÉ.
+      - name: doctor --fix rouvre le socket VICI SANS redémarrer charon
+        run: |
+          set -euo pipefail
+          PID_BEFORE="$(systemctl show -p MainPID --value strongswan)"
+          sudo chgrp root /run/charon.vici           # on casse l'accès du groupe swanmgr
+
+          sudo swanmgrctl doctor --fix | tee /tmp/fix.txt
+          grep -q "sans redémarrer charon" /tmp/fix.txt
+
+          [ "$(stat -c '%G' /run/charon.vici)" = swanmgr ] \
+            || { echo "le socket n'a pas été rouvert au groupe swanmgr"; exit 1; }
+          PID_AFTER="$(systemctl show -p MainPID --value strongswan)"
+          [ "$PID_BEFORE" = "$PID_AFTER" ] \
+            || { echo "charon a été redémarré (PID $PID_BEFORE → $PID_AFTER) : les tunnels ont sauté"; exit 1; }
 
       # Le comportement le plus fortement revendiqué du produit : strongSwan présent mais
       # injoignable ⇒ l'installeur REFUSE de terminer, plutôt que de livrer une console qui

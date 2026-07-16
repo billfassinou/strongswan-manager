@@ -242,6 +242,7 @@ L'installeur pose un outil de cycle de vie :
 | Commande | Effet |
 |---|---|
 | `swanmgrctl doctor` | Diagnostic complet : base, socket VICI, certificat, ports, pare-feu. **La première chose à lancer quand quelque chose cloche.** |
+| `swanmgrctl doctor --fix` | Tente d'abord de **réparer** (démarre PostgreSQL, corrige `pg_hba`, rouvre le socket VICI, redémarre la console, rouvre le pare-feu), **puis** diagnostique. Ne redémarre **jamais** charon — les tunnels IPsec actifs sont préservés. |
 | `swanmgrctl backup` | Sauvegarde la base **et** `SECRETS_KEY` dans une archive. |
 | `swanmgrctl restore ARCHIVE` | Restaure. Refuse si la clé de l'archive ne correspond pas à l'installation. |
 | `swanmgrctl upgrade` | Sauvegarde, met à jour, vérifie, et **revient en arrière tout seul** si la console ne répond plus. |

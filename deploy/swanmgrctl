@@ -30,6 +30,9 @@ usage() {
 Usage : swanmgrctl <commande> [options]
 
   doctor                  Diagnostique l'installation (base, VICI, TLS, ports, pare-feu)
+  doctor --fix            Tente de relancer/réparer les services concernés, PUIS diagnostique
+                          (démarre PostgreSQL, corrige pg_hba, rouvre le socket VICI sans
+                          redémarrer charon, redémarre la console, rouvre le pare-feu)
   status                  État du service
   logs [-f]               Journaux du service
 
@@ -64,8 +67,79 @@ installed_version() {
 
 # --- doctor ------------------------------------------------------------------
 
+# doctor_repair — tente de remettre en route ce qui peut l'être, SANS jamais redémarrer
+# charon (cela couperait tous les tunnels IPsec actifs). N'agit que sur une condition
+# réellement constatée ; ce qui relève d'un choix (SECRETS_KEY, VICI_ENDPOINTS) n'est pas
+# « réparé ». Appelée avant le diagnostic quand « doctor --fix » ; le rapport qui suit montre
+# le résultat.
+doctor_repair() {
+  need_root
+  local url
+
+  echo
+  echo "  StrongSwan Manager — réparation (--fix)"
+  echo
+
+  # PostgreSQL local arrêté → on le démarre.
+  if pg_local && ! systemctl is-active --quiet postgresql; then
+    info "démarrage de PostgreSQL"
+    if systemctl start postgresql >/dev/null 2>&1; then ok "PostgreSQL démarré"; else warn "PostgreSQL n'a pas démarré."; fi
+  fi
+
+  # Base injoignable avec le DSN alors que le serveur tourne : le cas RHEL (pg_hba en ident).
+  url="$(env_get DATABASE_URL || true)"
+  if [ -n "$url" ] && command -v psql >/dev/null 2>&1 && ! psql "$url" -tAc 'SELECT 1' >/dev/null 2>&1; then
+    if pg_local && systemctl is-active --quiet postgresql; then
+      info "base injoignable — correction de l'authentification PostgreSQL"
+      ensure_pg_password_auth || true
+    fi
+  fi
+
+  # Socket VICI présent mais pas au bon groupe : on corrige LE SOCKET EN DIRECT (chgrp/chmod),
+  # sans toucher à charon. On (re)pose aussi le drop-in pour que ce soit persistant au prochain
+  # démarrage de charon — mais on ne redémarre PAS charon.
+  local sock; sock="$(vici_socket || true)"
+  if [ -n "$sock" ] && [ "$(stat -c '%G' "$sock")" != "$SVC_USER" ]; then
+    info "ouverture du socket VICI au groupe « $SVC_USER » (sans redémarrer charon)"
+    if chgrp "$SVC_USER" "$sock" 2>/dev/null && chmod 0660 "$sock" 2>/dev/null; then
+      ok "socket VICI ouvert au groupe « $SVC_USER » (les tunnels actifs sont intacts)"
+      local sw_unit; sw_unit="$(strongswan_unit)"
+      if [ ! -f "/etc/systemd/system/${sw_unit}.d/10-vici-swanmgr.conf" ]; then
+        mkdir -p "/etc/systemd/system/${sw_unit}.d"
+        cat > "/etc/systemd/system/${sw_unit}.d/10-vici-swanmgr.conf" <<EOF
+[Service]
+ExecStartPost=/bin/sh -c 'for i in \$(seq 100); do [ -S /run/charon.vici ] && break; sleep 0.1; done; \\
+if [ -S /run/charon.vici ]; then chgrp $SVC_USER /run/charon.vici && chmod 0660 /run/charon.vici; fi'
+EOF
+        systemctl daemon-reload
+        ok "drop-in VICI posé (persistant au prochain démarrage de charon)"
+      fi
+    else
+      warn "impossible d'ajuster le socket VICI."
+    fi
+  fi
+
+  # Pare-feu : (ré)ouvre les ports si un pare-feu est actif mais qu'ils manquent.
+  if systemctl is-active --quiet firewalld 2>/dev/null \
+     && ! firewall-cmd --list-ports 2>/dev/null | grep -q "$HTTPS_PORT/tcp"; then
+    info "ouverture des ports dans le pare-feu"
+    open_firewall
+  fi
+
+  # La console : inactive ou muette → on la redémarre (elle, pas charon). C'est aussi ce qui
+  # la fait reprendre la connexion VICI après la correction du socket.
+  if ! systemctl is-active --quiet "$SVC_NAME" || ! wait_health 3; then
+    info "redémarrage de la console"
+    systemctl restart "$SVC_NAME" >/dev/null 2>&1 || true
+    if wait_health 30 >/dev/null 2>&1; then ok "console redémarrée"; else warn "la console ne répond toujours pas."; fi
+  fi
+}
+
 cmd_doctor() {
-  local rc=0 url sock sw_unit
+  local rc=0 url sock sw_unit fix=0
+  [ "${1:-}" = "--fix" ] && fix=1
+
+  [ "$fix" -eq 1 ] && doctor_repair
 
   echo
   echo "  StrongSwan Manager — diagnostic"
