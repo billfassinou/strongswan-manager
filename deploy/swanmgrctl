@@ -410,7 +410,10 @@ cmd_upgrade() {
   ok "binaire remplacé ($(installed_version))"
 
   info "redémarrage"
-  systemctl restart "$SVC_NAME"
+  # « || true » VITAL : si le nouveau binaire plante assez vite, « systemctl restart » sort en
+  # échec, et sous set -e cela tuerait le script AVANT le rollback ci-dessous — le filet de
+  # sécurité tout entier serait sauté. C'est wait_health qui juge le vrai résultat.
+  systemctl restart "$SVC_NAME" || true
 
   if wait_health 60; then
     rm -f "$BIN.bak"
@@ -420,7 +423,7 @@ cmd_upgrade() {
     warn "le service ne répond pas : RETOUR À LA VERSION PRÉCÉDENTE"
     rm -f "$BIN_DIR/swanmgrctl.new"
     mv -f "$BIN.bak" "$BIN"
-    systemctl restart "$SVC_NAME"
+    systemctl restart "$SVC_NAME" || true   # même raison : wait_health tranche
     if wait_health 60; then
       die "mise à jour annulée, l'ancienne version est de nouveau en service.
   Journaux de l'échec : journalctl -u $SVC_NAME -n 100 --no-pager"
