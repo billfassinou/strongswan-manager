@@ -330,6 +330,28 @@ jobs:
             || { echo "charon a été redémarré (PID $PID_BEFORE → $PID_AFTER) : les tunnels ont sauté"; exit 1; }
 
       # Le comportement le plus fortement revendiqué du produit : strongSwan présent mais
+      # Le cœur de la revue de code : une RÉINSTALLATION (= le postinstall d'un apt/dnf upgrade,
+      # même fonction install_vici_dropin) ne doit PAS redémarrer charon — sinon tous les tunnels
+      # IPsec sautent à chaque mise à jour — et ne doit PAS écraser un VICI_ENDPOINTS personnalisé.
+      # (Placé juste avant l'étape de désinstallation : elle repart de zéro de toute façon.)
+      - name: Réinstallation ne bounce PAS charon et préserve VICI_ENDPOINTS
+        run: |
+          set -euo pipefail
+          # Un admin a réglé une passerelle distante :
+          sudo sed -i 's|^VICI_ENDPOINTS=.*|VICI_ENDPOINTS=gw-remote=tcp:10.0.0.5:4502|' \
+            /etc/strongswan-manager/strongswan-manager.env
+          PID_BEFORE="$(systemctl show -p MainPID --value strongswan)"
+          [ -n "$PID_BEFORE" ] && [ "$PID_BEFORE" != 0 ] || { echo "charon ne tourne pas — test non probant"; exit 1; }
+
+          sudo "$BUNDLE/install.sh" --yes
+
+          PID_AFTER="$(systemctl show -p MainPID --value strongswan)"
+          [ "$PID_BEFORE" = "$PID_AFTER" ] \
+            || { echo "charon redémarré à la réinstallation (PID $PID_BEFORE → $PID_AFTER) : tunnels coupés"; exit 1; }
+          grep -q '^VICI_ENDPOINTS=gw-remote=tcp:10.0.0.5:4502$' /etc/strongswan-manager/strongswan-manager.env \
+            || { echo "VICI_ENDPOINTS personnalisé écrasé à la réinstallation"; exit 1; }
+          echo "✔ charon intact (PID $PID_AFTER) et VICI_ENDPOINTS préservé"
+
       # injoignable ⇒ l'installeur REFUSE de terminer, plutôt que de livrer une console qui
       # affiche des tunnels simulés en croyant piloter de vrais tunnels. Seul le cas passant
       # était testé ; voici le cas d'échec.
@@ -453,6 +475,12 @@ jobs:
           # /run/charon.vici : le chemin était codé en dur. VICI_ENDPOINTS doit être renseigné.
           docker exec box grep -q '^VICI_ENDPOINTS=local=unix:' /etc/strongswan-manager/strongswan-manager.env \
             || { echo "le paquet a livré un MODE DÉMO : VICI_ENDPOINTS est vide"; exit 1; }
+
+          # Le drop-in VICI doit être PORTABLE : il boucle sur tous les emplacements de socket,
+          # RHEL (/run/strongswan/charon.vici) compris — pas un chemin Debian codé en dur.
+          docker exec box sh -c 'cat /etc/systemd/system/*/10-vici-swanmgr.conf' | tee /tmp/dropin.txt
+          grep -q 'strongswan/charon.vici' /tmp/dropin.txt \
+            || { echo "drop-in non portable : le socket RHEL n'y figure pas"; exit 1; }
 
       - name: Mise à jour — secrets et base conservés, service toujours activé au boot
         run: |
