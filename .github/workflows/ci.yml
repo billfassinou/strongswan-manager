@@ -348,8 +348,11 @@ jobs:
           PID_AFTER="$(systemctl show -p MainPID --value strongswan)"
           [ "$PID_BEFORE" = "$PID_AFTER" ] \
             || { echo "charon redémarré à la réinstallation (PID $PID_BEFORE → $PID_AFTER) : tunnels coupés"; exit 1; }
-          grep -q '^VICI_ENDPOINTS=gw-remote=tcp:10.0.0.5:4502$' /etc/strongswan-manager/strongswan-manager.env \
-            || { echo "VICI_ENDPOINTS personnalisé écrasé à la réinstallation"; exit 1; }
+
+          ACTUAL="$(sudo sed -n 's/^VICI_ENDPOINTS=//p' /etc/strongswan-manager/strongswan-manager.env)"
+          echo "VICI_ENDPOINTS après réinstallation = [$ACTUAL]"
+          [ "$ACTUAL" = "gw-remote=tcp:10.0.0.5:4502" ] \
+            || { echo "VICI_ENDPOINTS personnalisé écrasé à la réinstallation (attendu gw-remote=…)"; exit 1; }
           echo "✔ charon intact (PID $PID_AFTER) et VICI_ENDPOINTS préservé"
 
       # injoignable ⇒ l'installeur REFUSE de terminer, plutôt que de livrer une console qui
