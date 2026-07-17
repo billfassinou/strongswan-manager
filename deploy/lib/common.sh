@@ -404,20 +404,21 @@ vici_socket() {
   return 1
 }
 
-# charon RECRÉE le socket (0770, root:root) à chaque démarrage : un chmod ponctuel serait
-# perdu au premier redémarrage. D'où ce drop-in, rejoué à chaque fois — c'est lui qui permet
-# à la console de piloter charon SANS tourner en root.
-install_vici_dropin() {
+# write_vici_dropin — SOURCE UNIQUE du drop-in VICI (portable Debian/RHEL). Purge les drop-ins
+# laissés sur une autre unité, écrit celui de l'unité active, recharge systemd. N'agit PAS sur
+# l'état de charon. Utilisé par install_vici_dropin ET doctor_repair : le contenu ne peut plus
+# diverger d'un endroit à l'autre.
+#
+# charon RECRÉE le socket (0770, root:root) à chaque démarrage ; l'ExecStartPost rejoue donc le
+# chgrp/chmod à CHAQUE démarrage futur de charon. Il boucle sur $VICI_SOCKETS car l'emplacement
+# varie (Debian : /run/charon.vici ; RHEL/EPEL : /run/strongswan/charon.vici).
+write_vici_dropin() {
   local sw_unit other; sw_unit="$(strongswan_unit)"
-
-  # Purge un drop-in laissé sur une AUTRE unité (une version antérieure pouvait se tromper
-  # d'unité) : sinon il resterait à traîner, inerte et trompeur.
   for other in $STRONGSWAN_UNITS; do
     [ "$other" = "$sw_unit" ] && continue
     rm -f "/etc/systemd/system/${other}.d/10-vici-swanmgr.conf"
     rmdir "/etc/systemd/system/${other}.d" 2>/dev/null || true
   done
-
   mkdir -p "/etc/systemd/system/${sw_unit}.d"
   cat > "/etc/systemd/system/${sw_unit}.d/10-vici-swanmgr.conf" <<EOF
 # Posé par StrongSwan Manager : ouvre le socket VICI au groupe « $SVC_USER », quel que soit
@@ -427,18 +428,44 @@ ExecStartPost=/bin/sh -c 'for i in \$(seq 100); do for s in $VICI_SOCKETS; do \
 if [ -S "\$s" ]; then chgrp $SVC_USER "\$s" && chmod 0660 "\$s" && exit 0; fi; done; sleep 0.1; done; exit 0'
 EOF
   systemctl daemon-reload
-  # « enable » et « start » sont DÉCOUPLÉS : sur EPEL, strongswan.service n'a pas toujours de
-  # section [Install], et « enable --now » échoue alors SANS RIEN DÉMARRER — charon ne tournait
-  # pas, le socket n'existait pas, et la console tombait en mode démo.
+}
+
+# open_vici_socket — ouvre le socket VICI VIVANT au groupe du service, EN DIRECT (chgrp/chmod),
+# donc SANS redémarrer charon : les tunnels IPsec actifs ne sont pas coupés. 0 si ouvert, 1 sinon.
+open_vici_socket() {
+  local sock; sock="$(vici_socket || true)"
+  [ -n "$sock" ] || return 1
+  if chgrp "$SVC_USER" "$sock" 2>/dev/null && chmod 0660 "$sock" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+# install_vici_dropin — rend le socket VICI accessible à la console, SANS JAMAIS redémarrer
+# charon (une console qui gère un VPN ne doit pas couper les tunnels à chaque mise à jour).
+# On pose le drop-in (persistance pour les démarrages FUTURS), on active l'unité, on la
+# « start » — JAMAIS « restart » : sur un charon déjà actif, start est un no-op, il ne bounce
+# donc rien ; s'il est arrêté, il le lance. Puis on ouvre le socket vivant en direct.
+install_vici_dropin() {
+  local sw_unit; sw_unit="$(strongswan_unit)"
+  write_vici_dropin
+
+  # « enable » et « start » sont DÉCOUPLÉS : sur EPEL, l'unité n'a pas toujours de section
+  # [Install], et « enable --now » échoue alors SANS RIEN DÉMARRER.
   systemctl enable "$sw_unit" >/dev/null 2>&1 \
     || warn "$sw_unit ne peut pas être activé au démarrage (unité sans section [Install])."
-  systemctl restart "$sw_unit" >/dev/null 2>&1 \
-    || { warn "$sw_unit n'a pas démarré : $(systemctl is-active "$sw_unit" 2>&1)"; return 1; }
-  sleep 2
+  systemctl start "$sw_unit" >/dev/null 2>&1 \
+    || warn "$sw_unit n'a pas démarré : $(systemctl is-active "$sw_unit" 2>&1)"
 
-  local sock; sock="$(vici_socket || true)"
-  if [ -n "$sock" ] && [ "$(stat -c '%G' "$sock")" = "$SVC_USER" ]; then
-    ok "socket VICI accessible au groupe « $SVC_USER » (la console ne tourne pas en root)"
+  # Le drop-in ne vaut que pour les démarrages futurs (on ne redémarre pas) : on ouvre donc le
+  # socket vivant maintenant. On lui laisse le temps d'apparaître si charon vient de démarrer.
+  local i
+  for i in $(seq 20); do
+    [ -n "$(vici_socket || true)" ] && break
+    sleep 0.2
+  done
+  if open_vici_socket; then
+    ok "socket VICI accessible au groupe « $SVC_USER » (console non-root, charon non redémarré)"
     return 0
   fi
   warn "le socket VICI n'a pas pu être ouvert au groupe « $SVC_USER »."
@@ -446,13 +473,14 @@ EOF
   return 1
 }
 
-# set_vici_endpoint — inscrit dans la configuration le socket réellement détecté.
-# Il n'est connaissable qu'APRÈS le démarrage de charon : c'est pour cela que l'appel vient
-# après install_vici_dropin, et non au moment d'écrire le fichier de configuration.
+# set_vici_endpoint — inscrit le socket détecté dans la configuration, MAIS seulement si
+# VICI_ENDPOINTS est encore vide. Toute valeur déjà posée (passerelles distantes réglées par
+# l'admin) est LAISSÉE INTACTE : une mise à jour de paquet ne doit pas réinitialiser ce choix.
 set_vici_endpoint() {
   local sock
   sock="$(vici_socket || true)"
   [ -n "$sock" ] || return 1
+  [ -z "$(env_get VICI_ENDPOINTS || true)" ] || return 0   # déjà configuré : on n'y touche pas
   if grep -q '^VICI_ENDPOINTS=' "$ENV_FILE"; then
     sed -i "s|^VICI_ENDPOINTS=.*|VICI_ENDPOINTS=local=unix:$sock|" "$ENV_FILE"
   else
@@ -592,17 +620,29 @@ build_from_source() {
 
 # --- Pare-feu ----------------------------------------------------------------
 
+# open_firewall — rend TOUJOURS 0. Une chaîne « firewall-cmd && … && ok » qui échoue renverrait
+# non-zéro, et cette fonction est appelée nue sous set -e juste avant la vérification finale :
+# l'échec d'une commande de pare-feu ne doit pas interrompre une installation par ailleurs
+# complète. On avertit, on n'abandonne pas.
 open_firewall() {
   if systemctl is-active --quiet firewalld 2>/dev/null; then
-    firewall-cmd --permanent --add-port="$HTTPS_PORT"/tcp >/dev/null && \
-    firewall-cmd --permanent --add-port="$HTTP_PORT"/tcp  >/dev/null && \
-    firewall-cmd --reload >/dev/null && ok "firewalld : ports $HTTPS_PORT et $HTTP_PORT ouverts"
+    if firewall-cmd --permanent --add-port="$HTTPS_PORT"/tcp >/dev/null 2>&1 \
+       && firewall-cmd --permanent --add-port="$HTTP_PORT"/tcp >/dev/null 2>&1 \
+       && firewall-cmd --reload >/dev/null 2>&1; then
+      ok "firewalld : ports $HTTPS_PORT et $HTTP_PORT ouverts"
+    else
+      warn "firewalld actif mais l'ouverture des ports a échoué — ouvrez $HTTPS_PORT et $HTTP_PORT à la main."
+    fi
   elif command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "^Status: active"; then
-    ufw allow "$HTTPS_PORT"/tcp >/dev/null && ufw allow "$HTTP_PORT"/tcp >/dev/null \
-      && ok "ufw : ports $HTTPS_PORT et $HTTP_PORT ouverts"
+    if ufw allow "$HTTPS_PORT"/tcp >/dev/null 2>&1 && ufw allow "$HTTP_PORT"/tcp >/dev/null 2>&1; then
+      ok "ufw : ports $HTTPS_PORT et $HTTP_PORT ouverts"
+    else
+      warn "ufw actif mais l'ouverture des ports a échoué — ouvrez $HTTPS_PORT et $HTTP_PORT à la main."
+    fi
   else
     warn "aucun pare-feu actif détecté — pensez à autoriser les ports $HTTPS_PORT et $HTTP_PORT."
   fi
+  return 0
 }
 
 # --- Service -----------------------------------------------------------------

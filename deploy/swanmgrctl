@@ -95,25 +95,17 @@ doctor_repair() {
     fi
   fi
 
-  # Socket VICI présent mais pas au bon groupe : on corrige LE SOCKET EN DIRECT (chgrp/chmod),
-  # sans toucher à charon. On (re)pose aussi le drop-in pour que ce soit persistant au prochain
-  # démarrage de charon — mais on ne redémarre PAS charon.
+  # Socket VICI présent mais pas au bon groupe : on l'ouvre EN DIRECT et on (re)pose le drop-in
+  # PORTABLE — via les mêmes helpers que l'installation, pour que le contenu ne diverge pas
+  # (l'ancienne version codait /run/charon.vici en dur → cassée sur RHEL). On ne redémarre PAS
+  # charon : les tunnels actifs restent intacts.
   local sock; sock="$(vici_socket || true)"
   if [ -n "$sock" ] && [ "$(stat -c '%G' "$sock")" != "$SVC_USER" ]; then
     info "ouverture du socket VICI au groupe « $SVC_USER » (sans redémarrer charon)"
-    if chgrp "$SVC_USER" "$sock" 2>/dev/null && chmod 0660 "$sock" 2>/dev/null; then
+    if open_vici_socket; then
       ok "socket VICI ouvert au groupe « $SVC_USER » (les tunnels actifs sont intacts)"
-      local sw_unit; sw_unit="$(strongswan_unit)"
-      if [ ! -f "/etc/systemd/system/${sw_unit}.d/10-vici-swanmgr.conf" ]; then
-        mkdir -p "/etc/systemd/system/${sw_unit}.d"
-        cat > "/etc/systemd/system/${sw_unit}.d/10-vici-swanmgr.conf" <<EOF
-[Service]
-ExecStartPost=/bin/sh -c 'for i in \$(seq 100); do [ -S /run/charon.vici ] && break; sleep 0.1; done; \\
-if [ -S /run/charon.vici ]; then chgrp $SVC_USER /run/charon.vici && chmod 0660 /run/charon.vici; fi'
-EOF
-        systemctl daemon-reload
-        ok "drop-in VICI posé (persistant au prochain démarrage de charon)"
-      fi
+      write_vici_dropin   # persistance portable Debian/RHEL, sans condition de présence
+      ok "drop-in VICI (ré)appliqué (persistant au prochain démarrage de charon)"
     else
       warn "impossible d'ajuster le socket VICI."
     fi
@@ -139,7 +131,9 @@ cmd_doctor() {
   local rc=0 url sock sw_unit fix=0
   [ "${1:-}" = "--fix" ] && fix=1
 
-  [ "$fix" -eq 1 ] && doctor_repair
+  # if/then et non « [ ] && doctor_repair » : doctor_repair est en fin de liste AND, et s'il
+  # renvoyait non-zéro un jour, le diagnostic qui suit serait sauté sous set -e.
+  if [ "$fix" -eq 1 ]; then doctor_repair; fi
 
   echo
   echo "  StrongSwan Manager — diagnostic"
@@ -375,7 +369,7 @@ cmd_upgrade() {
   need_root
   [ -x "$BIN" ] || die "aucune installation trouvée ($BIN)."
 
-  local tmp new; tmp="$(make_tmpdir)"
+  local tmp new srcdir=""; tmp="$(make_tmpdir)"
 
   if [ -n "$bundle" ]; then
     # Chemin hors ligne : le bundle a été apporté à la main.
@@ -390,14 +384,12 @@ cmd_upgrade() {
     [ -n "$version" ] || die "impossible de déterminer la dernière version."
 
     info "téléchargement de $version"
-    local bdir; bdir="$(fetch_bundle "$version" "$tmp")"   # télécharge + vérifie le SHA-256
+    srcdir="$(fetch_bundle "$version" "$tmp")"   # télécharge + vérifie le SHA-256
     ok "somme de contrôle vérifiée"
-    new="$bdir/strongswan-manager"
-    # Les outils du bundle valent pour la version installée : on les rafraîchit aussi.
-    [ -f "$bdir/swanmgrctl" ] && install -m 0755 "$bdir/swanmgrctl" "$BIN_DIR/swanmgrctl.new"
-    [ -f "$bdir/lib/common.sh" ] && install -m 0644 "$bdir/lib/common.sh" "$SHARE_DIR/lib/common.sh"
-    [ -f "$bdir/strongswan-manager.service" ] && install -m 0644 \
-      "$bdir/strongswan-manager.service" "$UNIT" && systemctl daemon-reload
+    new="$srcdir/strongswan-manager"
+    # Les fichiers auxiliaires (swanmgrctl, common.sh, unité) NE sont PAS installés ici : on
+    # attend que le nouveau binaire soit prouvé sain. Sinon, après un rollback, on ferait
+    # tourner l'ANCIEN binaire avec la NOUVELLE unité / le nouveau common.sh.
   fi
 
   info "sauvegarde préalable"
@@ -417,11 +409,19 @@ cmd_upgrade() {
 
   if wait_health 60; then
     rm -f "$BIN.bak"
-    [ -f "$BIN_DIR/swanmgrctl.new" ] && mv -f "$BIN_DIR/swanmgrctl.new" "$BIN_DIR/swanmgrctl"
+    # Le nouveau binaire est sain : on peut MAINTENANT poser les fichiers auxiliaires. Les avoir
+    # posés avant aurait laissé, après un rollback, l'ancien binaire face à une nouvelle unité.
+    # (L'unité rafraîchie s'applique au prochain redémarrage du service — comportement standard.)
+    if [ -n "$srcdir" ]; then
+      [ -f "$srcdir/swanmgrctl" ] && install -m 0755 "$srcdir/swanmgrctl" "$BIN_DIR/swanmgrctl"
+      [ -f "$srcdir/lib/common.sh" ] && install -m 0644 "$srcdir/lib/common.sh" "$SHARE_DIR/lib/common.sh"
+      if [ -f "$srcdir/strongswan-manager.service" ]; then
+        install -m 0644 "$srcdir/strongswan-manager.service" "$UNIT" && systemctl daemon-reload
+      fi
+    fi
     ok "mise à jour réussie — $(installed_version)"
   else
     warn "le service ne répond pas : RETOUR À LA VERSION PRÉCÉDENTE"
-    rm -f "$BIN_DIR/swanmgrctl.new"
     mv -f "$BIN.bak" "$BIN"
     systemctl restart "$SVC_NAME" || true   # même raison : wait_health tranche
     if wait_health 60; then

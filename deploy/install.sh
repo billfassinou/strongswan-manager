@@ -375,7 +375,7 @@ fi
 
 # 2. La base : on ÉTABLIT la connexion avec le DSN configuré.
 if verify_db; then
-  ok "base de données joignable ($(psql "$(env_get DATABASE_URL)" -tAc 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo '?') migrations appliquées)"
+  ok "base de données joignable ($(psql -w "$(env_get DATABASE_URL)" -tAc 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo '?') migrations appliquées)"
 else
   rc=$?
   if [ "$rc" -eq 2 ]; then
