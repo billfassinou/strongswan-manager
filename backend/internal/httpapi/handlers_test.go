@@ -433,6 +433,13 @@ func TestChangePasswordUnlocksTheAPI(t *testing.T) {
 		t.Fatalf("mot de passe trop court = %d, attendu 422", rec.Code)
 	}
 
+	// Trop long (> 72 octets, limite bcrypt) → 422, pas 500.
+	rec = h.do(http.MethodPost, "/api/v1/me/password", tok,
+		map[string]string{"current_password": "motdepasseinstall", "new_password": strings.Repeat("a", 73)})
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("mot de passe > 72 octets = %d, attendu 422 (pas 500)", rec.Code)
+	}
+
 	// Identique à l'ancien → 422.
 	rec = h.do(http.MethodPost, "/api/v1/me/password", tok,
 		map[string]string{"current_password": "motdepasseinstall", "new_password": "motdepasseinstall"})

@@ -293,3 +293,40 @@ func TestIntegrationAuditChainAndImmutability(t *testing.T) {
 		t.Fatal("le journal d'audit doit être immuable (UPDATE aurait dû échouer)")
 	}
 }
+
+// La migration 0008 ajoute must_change_password avec DEFAULT false : une installation EXISTANTE
+// (dont les lignes users_admin sont antérieures à la migration) ne doit PAS se retrouver
+// verrouillée à la mise à jour. On simule une telle ligne en l'insérant SANS cette colonne, et
+// on exige qu'elle vaille false. C'était la seule garantie du durcissement sans test.
+func TestIntegrationMigration0008DefaultsExistingUsersToFalse(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t) // applique toutes les migrations, 0008 comprise
+	defer st.Close()
+
+	id := uuid.NewString()
+	// Insertion volontairement limitée aux colonnes d'avant 0008 : la valeur de
+	// must_change_password vient donc du DEFAULT de la migration, pas de nous.
+	if _, err := st.Pool.Exec(ctx,
+		`INSERT INTO users_admin (id, identity, pass_hash, role, enabled) VALUES ($1,$2,$3,$4,$5)`,
+		id, "legacy-admin", "x", domain.RoleAdmin, true); err != nil {
+		t.Fatalf("insert utilisateur pré-0008: %v", err)
+	}
+
+	var must bool
+	if err := st.Pool.QueryRow(ctx,
+		`SELECT must_change_password FROM users_admin WHERE id=$1`, id).Scan(&must); err != nil {
+		t.Fatalf("lecture: %v", err)
+	}
+	if must {
+		t.Fatal("une ligne existante s'est retrouvée must_change_password=true : la mise à jour verrouillerait un admin en place")
+	}
+
+	// Et le repo doit lire la même chose.
+	u, err := st.Users.GetByID(ctx, id)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if u.MustChangePassword {
+		t.Fatal("GetByID renvoie must_change_password=true pour une ligne existante")
+	}
+}

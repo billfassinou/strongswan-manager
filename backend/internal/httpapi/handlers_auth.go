@@ -110,6 +110,11 @@ func (a *API) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if len([]rune(req.NewPassword)) < auth.MinPasswordLength {
 		ve.Add("new_password", fmt.Sprintf("au moins %d caractères", auth.MinPasswordLength))
 	}
+	// bcrypt rejette au-delà de 72 OCTETS : sans cette borne, une longue passphrase déclencherait
+	// une erreur de hachage → 500. On la traite comme ce qu'elle est : une entrée invalide (422).
+	if len(req.NewPassword) > auth.MaxPasswordLength {
+		ve.Add("new_password", fmt.Sprintf("au plus %d octets", auth.MaxPasswordLength))
+	}
 	if req.NewPassword == req.CurrentPassword {
 		ve.Add("new_password", "doit différer du mot de passe actuel")
 	}
@@ -154,7 +159,11 @@ func (a *API) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 // principal est toujours présent ici (le middleware d'authentification l'a déjà exigé).
 func (a *API) requirePasswordChanged(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if auth.PrincipalFrom(r.Context()).MustChangePassword {
+		// Garde nil par cohérence avec RequireWrite et défense en profondeur : ce middleware
+		// n'est sûr que monté DANS le groupe authentifié (le principal y est toujours présent) ;
+		// un futur remontage sans cette garde provoquerait un nil-panic.
+		p := auth.PrincipalFrom(r.Context())
+		if p == nil || p.MustChangePassword {
 			writeError(w, r, http.StatusForbidden, "password_change_required",
 				"mot de passe initial : changez-le (POST /api/v1/me/password) avant d'utiliser la console")
 			return

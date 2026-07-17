@@ -36,6 +36,10 @@ func CheckPassword(hash, pw string) bool {
 // ce qui résiste réellement à une attaque hors ligne sur le hash.
 const MinPasswordLength = 12
 
+// MaxPasswordLength est la limite DURE de bcrypt : au-delà de 72 octets, il refuse de hacher.
+// On la fait respecter en amont pour renvoyer une erreur de validation (422), pas une 500.
+const MaxPasswordLength = 72
+
 // Principal est l'utilisateur authentifié porté par le contexte de la requête.
 type Principal struct {
 	UserID   string
