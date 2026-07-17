@@ -88,7 +88,7 @@ doctor_repair() {
 
   # Base injoignable avec le DSN alors que le serveur tourne : le cas RHEL (pg_hba en ident).
   url="$(env_get DATABASE_URL || true)"
-  if [ -n "$url" ] && command -v psql >/dev/null 2>&1 && ! psql "$url" -tAc 'SELECT 1' >/dev/null 2>&1; then
+  if [ -n "$url" ] && command -v psql >/dev/null 2>&1 && ! psql -w "$url" -tAc 'SELECT 1' >/dev/null 2>&1; then
     if pg_local && systemctl is-active --quiet postgresql; then
       info "base injoignable — correction de l'authentification PostgreSQL"
       ensure_pg_password_auth || true
@@ -163,8 +163,8 @@ cmd_doctor() {
   url="$(env_get DATABASE_URL || true)"
   if [ -z "$url" ]; then
     warn "DATABASE_URL non renseignée"; rc=1
-  elif command -v psql >/dev/null 2>&1 && psql "$url" -tAc 'SELECT 1' >/dev/null 2>&1; then
-    ok "PostgreSQL joignable ($(psql "$url" -tAc 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo '?') migrations appliquées)"
+  elif command -v psql >/dev/null 2>&1 && psql -w "$url" -tAc 'SELECT 1' >/dev/null 2>&1; then
+    ok "PostgreSQL joignable ($(psql -w "$url" -tAc 'SELECT count(*) FROM schema_migrations' 2>/dev/null || echo '?') migrations appliquées)"
   else
     warn "PostgreSQL INJOIGNABLE avec DATABASE_URL"; rc=1
   fi
@@ -256,7 +256,7 @@ cmd_backup() {
   tmp="$(make_tmpdir)"
 
   info "sauvegarde de la base"
-  pg_dump --no-owner --no-privileges -Fc -f "$tmp/database.dump" "$(db_url)" \
+  pg_dump -w --no-owner --no-privileges -Fc -f "$tmp/database.dump" "$(db_url)" \
     || die "pg_dump a échoué."
 
   # La configuration part AVEC la base : c'est elle qui contient SECRETS_KEY.
@@ -351,7 +351,7 @@ EOF
   fi
 
   info "restauration de la base"
-  pg_restore --clean --if-exists --no-owner --no-privileges -d "$(db_url)" "$tmp/database.dump" \
+  pg_restore -w --clean --if-exists --no-owner --no-privileges -d "$(db_url)" "$tmp/database.dump" \
     || warn "pg_restore a signalé des avertissements (souvent bénins sur --clean)."
 
   info "redémarrage"

@@ -482,7 +482,9 @@ verify_db() {
   url="$(env_get DATABASE_URL || true)"
   [ -n "$url" ] || return 1
   command -v psql >/dev/null 2>&1 || return 2   # 2 = indéterminé (pas d'outil pour tester)
-  psql "$url" -tAc 'SELECT 1' >/dev/null 2>&1
+  # -w : ne JAMAIS demander de mot de passe (psql lirait le prompt sur le terminal,
+  # que 2>&1 ne masque pas → doctor se bloquerait). On échoue net, ce que l'appelant gère.
+  psql -w "$url" -tAc 'SELECT 1' >/dev/null 2>&1
 }
 
 # verify_vici → 0 si l'UTILISATEUR DU SERVICE peut réellement parler à charon.

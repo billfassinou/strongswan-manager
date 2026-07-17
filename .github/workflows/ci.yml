@@ -680,6 +680,29 @@ jobs:
             echo "doctor signale toujours la base injoignable"; exit 1
           fi
 
+      # « doctor --fix » doit corriger pg_hba SANS jamais demander de mot de passe : sinon psql
+      # se bloque sur le prompt du terminal (que les redirections ne masquent pas). On remet
+      # pg_hba dans l'état RHEL par défaut (ident), et on exige que doctor --fix termine — le
+      # « timeout » fait échouer un éventuel blocage — et rétablisse la connexion.
+      - name: doctor --fix corrige pg_hba sans se bloquer sur un prompt
+        run: |
+          set -euo pipefail
+          docker exec rbox sed -i -E \
+            's#(127\.0\.0\.1/32|::1/128)([[:space:]]+)(md5|scram-sha-256)#\1\2ident#' \
+            /var/lib/pgsql/data/pg_hba.conf
+          docker exec rbox systemctl reload postgresql
+          # La base est de nouveau injoignable par mot de passe (l'état qui bloquait).
+          docker exec rbox sh -c 'psql -w "$(sed -n "s/^DATABASE_URL=//p" /etc/strongswan-manager/strongswan-manager.env)" -tAc "SELECT 1"' >/dev/null 2>&1 \
+            && { echo "pg_hba n'a pas été remis en ident, test non probant"; exit 1; } || true
+
+          # stdin fermée + timeout : un prompt de mot de passe ferait DÉPASSER le délai.
+          timeout 90 docker exec -i rbox swanmgrctl doctor --fix </dev/null > /tmp/fix.txt 2>&1 || true
+          cat /tmp/fix.txt
+          grep -q "authentification par mot de passe activée" /tmp/fix.txt \
+            || { echo "doctor --fix n'a pas corrigé pg_hba"; exit 1; }
+          # …et la base répond de nouveau.
+          docker exec rbox sh -c 'psql -w "$(sed -n "s/^DATABASE_URL=//p" /etc/strongswan-manager/strongswan-manager.env)" -tAc "SELECT 1"' | grep -qx 1
+
       - name: Diagnostic en cas d'échec
         if: failure()
         run: |
